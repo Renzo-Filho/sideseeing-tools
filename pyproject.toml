@@ -20,6 +20,9 @@ dependencies = [
   "opencv-python",
   "pandas",
   "reverse-geocode",
+  "fastapi",      # NEW
+  "uvicorn",      # NEW
+  "python-multipart" # NEW (Often needed for form data/file handling in FastAPI)
 ]
 classifiers = [
   "Programming Language :: Python :: 3",

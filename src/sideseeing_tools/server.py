@@ -1,0 +1,117 @@
+import os
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from sideseeing_tools.export import Report
+from sideseeing_tools import media
+from sideseeing_tools.dataviz_api import router as dataviz_router
+
+# Initialize the FastAPI app
+app = FastAPI(title="SideSeeing Server", version="0.10.1")
+app.include_router(dataviz_router)
+
+# In-memory dictionary to track extraction progress
+extraction_jobs = {}
+
+def background_extractor(video_path: str, output_dir: str, instance_name: str, fps: int = 1):
+    """
+    Runs in a background thread so it doesn't block the FastAPI event loop.
+    """
+    extraction_jobs[instance_name] = {"status": "processing"}
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        # Using the existing media.py function
+        media.extract_frames(
+            source_path=video_path,
+            target_dir=output_dir,
+            step=30, # Assuming 30fps video, step=30 means 1 frame per sec
+            prefix=f"{instance_name}_"
+        )
+        extraction_jobs[instance_name] = {"status": "completed"}
+    except Exception as e:
+        extraction_jobs[instance_name] = {"status": "error", "message": str(e)}
+
+
+
+# --- FastAPI Routes (Defined globally) ---
+
+@app.get("/")
+async def serve_index(request: Request):
+    """Serves the main static report HTML."""
+    output_dir = getattr(request.app.state, "output_dir", "output")
+    index_path = os.path.join(output_dir, "index.html")
+    
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    raise HTTPException(status_code=404, detail="index.html not found.")
+
+@app.post("/api/vision/extract/{instance_name}")
+async def trigger_extraction(instance_name: str, background_tasks: BackgroundTasks, request: Request):
+    """Triggers background extraction of frames for a given video."""
+    input_dir = request.app.state.input_dir
+    frames_dir = request.app.state.frames_dir or os.path.join(request.app.state.output_dir, "extracted_frames")
+    
+    video_path = os.path.join(input_dir, instance_name, "video.mp4")
+    output_dir = os.path.join(frames_dir, f"{instance_name}-frames")
+    
+    if not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail=f"Video not found for {instance_name}")
+
+    # Don't trigger if already extracting or completed
+    if extraction_jobs.get(instance_name, {}).get("status") in ["processing", "completed"]:
+        return {"message": "Extraction already processing or completed", "status": extraction_jobs[instance_name]["status"]}
+
+    background_tasks.add_task(background_extractor, video_path, output_dir, instance_name)
+    return {"message": "Extraction started", "output_dir": output_dir}
+
+
+
+# --- Server Startup Logic ---
+
+def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None, frames_dir: str = None, port: int = 5000, host: str = "0.0.0.0"):
+    """
+    Starts the local FastAPI server. Can be called via CLI or Python script.
+    """
+    # Store these globally in the app state
+    app.state.input_dir = input_dir
+    app.state.output_dir = output_dir
+    app.state.ai_dir = ai_dir
+    app.state.frames_dir = frames_dir
+
+    index_path = os.path.join(output_dir, "index.html")
+    static_dir = os.path.join(output_dir, "static")
+    data_dir = os.path.join(output_dir, "data")
+
+    # Phase 1 Logic: Check if the report exists. If not, generate it.
+    if not os.path.exists(index_path) or not os.path.exists(static_dir):
+        print(f"Report not found at {output_dir}. Generating base report...")
+        r = Report()
+        r.generate_report(input_dir=input_dir, output_dir=output_dir)
+        print("Base report generated successfully.")
+    else:
+        print(f"Existing report found at {output_dir}. Booting server...")
+
+    # Safely mount static directories if they exist
+    if os.path.exists(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    if os.path.exists(data_dir):
+        app.mount("/data", StaticFiles(directory=data_dir), name="data")
+
+    print(f"Starting SideSeeing server at http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Serve SideSeeing HTML report dynamically.")
+    parser.add_argument("-i", "--input_dir", required=True, help="Path to raw dataset.")
+    parser.add_argument("-o", "--output_dir", default="output", help="Path to report output.")
+    parser.add_argument("--ai_dir", default=None, help="Optional: Path to AI predictions folder.")
+    parser.add_argument("--frames_dir", default=None, help="Optional: Path to pre-extracted frames.")
+    parser.add_argument("-p", "--port", type=int, default=5000)
+
+    args = parser.parse_args()
+    start_server(args.input_dir, args.output_dir, args.ai_dir, args.frames_dir, args.port)
