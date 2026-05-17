@@ -1,0 +1,35 @@
+/* Dataviz Scoped Styles */
+.dataviz-checkerboard {
+    background-color: #0f172a;
+    background-image: 
+        linear-gradient(45deg, #1e293b 25%, transparent 25%), 
+        linear-gradient(-45deg, #1e293b 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #1e293b 75%), 
+        linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+
+.bbox-rect {
+    fill: none;
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+    transition: opacity 0.2s, stroke-width 0.2s;
+}
+.bbox-rect:hover { stroke-width: 4px; opacity: 0.8; cursor: pointer; }
+
+/* Modern Toggle Switch */
+.toggle-checkbox:checked { right: 0; border-color: #4f46e5; }
+.toggle-checkbox:checked + .toggle-label { background-color: #4f46e5; }
+.toggle-label {
+    width: 32px; height: 18px; background-color: #cbd5e1;
+    border-radius: 9999px; position: relative; cursor: pointer;
+    transition: background-color 0.2s ease-in; display: block;
+}
+.toggle-label:after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; background-color: white;
+    border-radius: 50%; transition: transform 0.2s ease-in;
+}
+.toggle-checkbox:checked + .toggle-label:after { transform: translateX(14px); }
+.toggle-checkbox { display: none; }

@@ -26,6 +26,7 @@
 
     <!-- Custom Styles -->
     <link rel="stylesheet" href="static/css/custom.css">
+    <link rel="stylesheet" href="static/css/dataviz.css">
 </head>
 <body class="bg-gray-50 text-slate-800 flex h-screen overflow-hidden">
 
@@ -86,6 +87,9 @@
                 <div id="submenu-analysis" class="submenu mt-2 space-y-1">
                     <a href="#" data-section="sidewalk-assessment" class="nav-link flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all">
                         <i data-lucide="cpu" size="18"></i><span class="font-medium text-sm">Sidewalk Assessment</span>
+                    </a>
+                    <a href="#" data-section="dataviz" class="nav-link flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all">
+                        <i data-lucide="eye" size="18"></i><span class="font-medium text-sm">Dataviz</span>
                     </a>
                 </div>
             </div>
@@ -154,6 +158,8 @@
             {% include 'video.html' %}
 
             {% include 'sidewalk-assessment.html' %}
+
+            {% include 'dataviz.html' %}
             
         </div>
     </main>
@@ -172,5 +178,6 @@
     <script src="static/js/wifi.js"></script>
     <script src="static/js/custom.js"></script>
     <script src="static/js/simple_sections.js"></script>
+    <script src="static/js/dataviz.js"></script>
 </body>
 </html>
