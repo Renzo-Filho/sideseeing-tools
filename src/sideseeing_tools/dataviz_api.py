@@ -74,8 +74,12 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
     target_path = os.path.join(f"{instance}-frames", filename)
     img_path = get_safe_path(frames_dir, target_path)
     
-    # Parse requested classes
-    requested_classes = sorted([c.strip() for c in classes.split(",") if c.strip()])
+    if classes == "":
+        return _empty_transparent_png()
+        
+    requested_classes = None
+    if classes is not None:
+        requested_classes = sorted([c.strip() for c in classes.split(",") if c.strip()])
     
     # Setup vis cache directory
     cache_dir = os.path.join(output_dir, "cache_vis")
@@ -141,38 +145,32 @@ def get_instance_data(instance_name: str, request: Request):
         if os.path.splitext(f)[1].lower() in valid_exts
     ])
 
-    # Initialize response structures
     bboxes = {f: [] for f in frames}
-    classes = set()
+    box_classes = set()
+    mask_classes = set()
 
-    # 2. Fetch AI Predictions (if configured)
     if ai_dir:
         from sideseeing_tools.visualizer import AI_Visualizer
-
         instance_ai_dir = os.path.join(ai_dir, instance_name)
         
         try:
             df = AI_Visualizer._get_predictions_df(instance_ai_dir)
-            
             if not df.empty:
-                # Extract all unique classes
-                classes = set(df['class_name'].dropna().unique().tolist())
-
-                # Map predictions to our frames
                 for _, row in df.iterrows():
                     img_basename = os.path.basename(str(row['image_name']))
+                    class_name = str(row['class_name'])
                     
-                    # Only process if we actually have this frame extracted
+                    # SEPARATE BY TYPE
+                    if row.get('is_mask', False):
+                        mask_classes.add(class_name)
+                    else:
+                        box_classes.add(class_name)
+
                     if img_basename in bboxes:
-                        # Forward-Compatibility: The SAM3 and Project Sidewalk CSVs don't 
-                        # contain bounding box coords (xmin/ymin), only masks and labels.
-                        # We build this logic to handle future object detection models (like YOLO)
-                        # that do provide these columns.
                         if 'xmin' in df.columns and pd.notna(row.get('xmin')):
-                            color_tuple = AI_Visualizer._get_color_for_class(str(row['class_name']))
-                            
+                            color_tuple = AI_Visualizer._get_color_for_class(class_name)
                             bboxes[img_basename].append({
-                                "class_name": str(row['class_name']),
+                                "class_name": class_name,
                                 "confidence": float(row.get('confidence', 1.0)),
                                 "xmin": float(row['xmin']),
                                 "ymin": float(row['ymin']),
@@ -186,5 +184,6 @@ def get_instance_data(instance_name: str, request: Request):
     return {
         "frames": frames,
         "bboxes": bboxes,
-        "classes": sorted(list(classes))
+        "box_classes": sorted(list(box_classes)),
+        "mask_classes": sorted(list(mask_classes))
     }

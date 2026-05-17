@@ -1,5 +1,3 @@
-# src/sideseeing_tools/visualizer.py
-
 import os
 import io
 import glob
@@ -101,7 +99,7 @@ class AI_Visualizer:
             class_name = str(row['class_name'])
             
             # Skip if the frontend didn't ask for this class
-            if requested_classes and class_name not in requested_classes:
+            if requested_classes is not None and class_name not in requested_classes:
                 continue
                 
             mask_path = AI_Visualizer._find_mask_file(str(row['image_name']), ai_dir)
