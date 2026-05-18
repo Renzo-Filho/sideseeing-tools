@@ -1,14 +1,78 @@
-<div id="video-section" class="section-content max-w-7xl mx-auto space-y-8">
+<div id="video-section" class="section-content max-w-7xl mx-auto space-y-8 hidden">
     <section class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="p-6 border-b border-gray-100">
-            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <i data-lucide="video" class="text-orange-500" size="20"></i>
-                Video Frames
-            </h2>
-            <p class="text-sm text-gray-500 mt-1">Video data along the routes.</p>
+        <div class="p-6 border-b border-gray-100 flex justify-between items-center flex-wrap gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                    <i data-lucide="video" class="text-orange-500" size="20"></i>
+                    Video Frames
+                </h2>
+                <p class="text-sm text-gray-500 mt-1">Video frames extracted from the route.</p>
+            </div>
+            <select id="video-instance-select" class="border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm w-64">
+                <option value="">-- Select an instance --</option>
+            </select>
         </div>
-        <div class="p-6 bg-slate-50 flex items-center justify-center text-gray-400 min-h-[200px]">
-            <p>Video Frames Module - To be implemented</p>
+        
+        <div class="flex flex-col bg-slate-900 relative h-[700px]">
+            <div id="video-error-overlay" class="absolute inset-0 bg-slate-900/95 z-50 flex flex-col items-center justify-center hidden">
+                <i data-lucide="server-crash" class="text-red-500 w-12 h-12 mb-4"></i>
+                <h3 class="text-white text-lg font-semibold mb-2">Server Required</h3>
+                <p class="text-slate-400 text-sm mb-6 max-w-md text-center">
+                    The Video Frames module requires the SideSeeing Dataviz Server to fetch dynamic frames. Please start the server (<code>python -m sideseeing_tools.dataviz</code>) to view frames.
+                </p>
+            </div>
+            
+            <div id="video-extraction-overlay" class="absolute inset-0 bg-slate-900/95 z-40 flex flex-col items-center justify-center hidden">
+                <i data-lucide="video" class="text-slate-500 w-12 h-12 mb-4"></i>
+                <h3 class="text-white text-lg font-semibold mb-2">Frames Not Extracted</h3>
+                <p class="text-slate-400 text-sm mb-6 max-w-md text-center">
+                    The video frames for this instance have not been extracted yet. You need to extract them before viewing.
+                </p>
+                <button id="video-btn-trigger-extract" class="bg-orange-600 hover:bg-orange-500 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2">
+                    <i data-lucide="play" class="w-4 h-4"></i>
+                    Extract Frames Now
+                </button>
+                
+                <div id="video-extraction-progress" class="hidden flex-col items-center mt-6">
+                    <div class="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                    <span class="text-orange-400 text-sm animate-pulse">Extracting frames in background... (Check terminal)</span>
+                </div>
+            </div>
+
+            <div class="absolute top-4 left-4 z-30 flex gap-2 pointer-events-none">
+                <div class="bg-black/70 backdrop-blur px-3 py-1.5 rounded border border-white/10 shadow-lg text-xs font-mono text-slate-200">
+                    <span id="video-filename">No image loaded</span>
+                </div>
+            </div>
+
+            <div class="flex-1 relative flex items-center justify-center overflow-hidden p-6 dataviz-checkerboard">
+                <div id="video-canvas" class="relative shadow-2xl rounded-sm w-full max-w-5xl transition-all duration-300" style="aspect-ratio: 4/3; max-height: 100%;">
+                    <img id="video-base-image" src="" class="block w-full h-full object-contain absolute inset-0 transition-opacity duration-200" draggable="false">
+                </div>
+            </div>
+
+            <div class="h-20 bg-slate-950 border-t border-slate-800 flex items-center shrink-0 z-30 px-4 gap-4">
+                <div class="flex items-center gap-2 text-xs text-slate-400 font-mono shrink-0">
+                    <input type="number" id="video-frame-input" min="1" 
+                           onkeydown="if(event.key==='Enter') videoGoToFrame(this.value - 1)"
+                           class="bg-slate-900 border border-slate-700 rounded w-16 px-1 py-1 text-center text-orange-400 font-bold focus:outline-none focus:border-orange-500 appearance-none">
+                    <span class="text-slate-600">/</span> <span id="video-total-frames-count">0</span>
+                </div>
+
+                <div class="flex items-center gap-1 shrink-0 mx-auto">
+                    <button onclick="videoJumpFrame(-1000)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">-1K</button>
+                    <button onclick="videoJumpFrame(-100)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">-100</button>
+                    <button onclick="videoJumpFrame(-10)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">-10</button>
+                    <button onclick="videoJumpFrame(-1)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">-1</button>
+                    <div class="w-px h-4 bg-slate-700 mx-1"></div>
+                    <button onclick="videoJumpFrame(1)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">+1</button>
+                    <button onclick="videoJumpFrame(10)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">+10</button>
+                    <button onclick="videoJumpFrame(100)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">+100</button>
+                    <button onclick="videoJumpFrame(1000)" class="text-[10px] font-mono text-slate-400 hover:text-white px-2 py-1 bg-slate-900 border border-slate-800 rounded transition-colors">+1K</button>
+                </div>
+
+                <div id="video-gallery" class="flex gap-2 overflow-x-auto flex-1 justify-end items-center h-full py-2 custom-scrollbar pl-4"></div>
+            </div>
         </div>
     </section>
 </div>
