@@ -100,7 +100,7 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
         return _empty_transparent_png()
         
     try:
-        from sideseeing_tools.visualizer import generate_mask_vis 
+        from sideseeing_tools.dataviz.visualizer import generate_mask_vis 
         img_io = generate_mask_vis(img_path, instance_ai_dir, requested_classes)
         
         if img_io:
@@ -150,7 +150,7 @@ def get_instance_data(instance_name: str, request: Request):
     mask_classes = set()
 
     if ai_dir:
-        from sideseeing_tools.visualizer import AI_Visualizer
+        from sideseeing_tools.dataviz.visualizer import AI_Visualizer
         instance_ai_dir = os.path.join(ai_dir, instance_name)
         
         try:

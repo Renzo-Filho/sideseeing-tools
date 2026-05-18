@@ -1,4 +1,4 @@
-from sideseeing_tools.server import start_server
+from sideseeing_tools.dataviz import start_server
 
 # Define your workspace paths
 RAW_DATA = "/home/renzo/Documents/creativision/SideSeeing-Workspace/dataset"

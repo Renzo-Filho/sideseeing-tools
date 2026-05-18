@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 from functools import lru_cache
 from typing import List, Optional
-from sideseeing_tools.dataviz_adapters import PredictionAdapter
+from sideseeing_tools.dataviz.adapters import PredictionAdapter
 
 class AI_Visualizer:
     
