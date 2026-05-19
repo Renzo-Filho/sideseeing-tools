@@ -418,6 +418,7 @@ class Report:
             "summary": summary, 
             "generation_date": datetime.now().strftime('%Y/%m/%d %H:%M:%S'),
             "version": version,
+            "cache_buster": int(datetime.now().timestamp()),
         }
 
         html_data = self.template.render(context)

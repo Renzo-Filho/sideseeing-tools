@@ -25,8 +25,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Custom Styles -->
-    <link rel="stylesheet" href="static/css/custom.css">
-    <link rel="stylesheet" href="static/css/dataviz.css">
+    <link rel="stylesheet" href="static/css/custom.css?v={{ cache_buster }}">
+    <link rel="stylesheet" href="static/css/dataviz.css?v={{ cache_buster }}">
 </head>
 <body class="bg-gray-50 text-slate-800 flex h-screen overflow-hidden">
 
@@ -170,15 +170,15 @@
         const GEO_FILES = {{ sections.geo | tojson }};
         const GEO_CENTERS_DATA = {{ summary.geo_centers_map | tojson }};
     </script>
-    <script src="static/js/map_utils.js"></script>
-    <script src="static/js/summary.js"></script>
-    <script src="static/js/sidewalk_assessment.js"></script>
-    <script src="static/js/geo.js"></script>
-    <script src="static/js/sensor.js"></script>
-    <script src="static/js/wifi.js"></script>
-    <script src="static/js/custom.js"></script>
-    <script src="static/js/simple_sections.js"></script>
-    <script src="static/js/video.js"></script>
-    <script src="static/js/dataviz.js"></script>
+    <script src="static/js/map_utils.js?v={{ cache_buster }}"></script>
+    <script src="static/js/summary.js?v={{ cache_buster }}"></script>
+    <script src="static/js/sidewalk_assessment.js?v={{ cache_buster }}"></script>
+    <script src="static/js/geo.js?v={{ cache_buster }}"></script>
+    <script src="static/js/sensor.js?v={{ cache_buster }}"></script>
+    <script src="static/js/wifi.js?v={{ cache_buster }}"></script>
+    <script src="static/js/custom.js?v={{ cache_buster }}"></script>
+    <script src="static/js/simple_sections.js?v={{ cache_buster }}"></script>
+    <script src="static/js/video.js?v={{ cache_buster }}"></script>
+    <script src="static/js/dataviz.js?v={{ cache_buster }}"></script>
 </body>
 </html>
