@@ -7,7 +7,6 @@ from sideseeing_tools.export import Report
 from sideseeing_tools import media
 from sideseeing_tools.dataviz.api import router as dataviz_router
 
-# Initialize the FastAPI app
 app = FastAPI(title="SideSeeing Server", version="0.10.1")
 app.include_router(dataviz_router)
 
@@ -46,7 +45,7 @@ async def serve_index(request: Request):
         return FileResponse(index_path)
     raise HTTPException(status_code=404, detail="index.html not found.")
 
-@app.post("/api/vision/extract/{instance_name}")
+@app.post("/api/dataviz/extract/{instance_name}")
 async def trigger_extraction(instance_name: str, background_tasks: BackgroundTasks, request: Request):
     """Triggers background extraction of frames for a given video."""
     input_dir = request.app.state.input_dir
@@ -67,7 +66,7 @@ async def trigger_extraction(instance_name: str, background_tasks: BackgroundTas
 
 
 
-# --- Server Startup Logic ---
+# --- Server Start Logic ---
 
 def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None, frames_dir: str = None, port: int = 5000, host: str = "0.0.0.0"):
     """
@@ -83,7 +82,7 @@ def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None,
     static_dir = os.path.join(output_dir, "static")
     data_dir = os.path.join(output_dir, "data")
 
-    # Phase 1 Logic: Check if the report exists. If not, generate it.
+    # Check if the report exists. If not, generate it.
     if not os.path.exists(index_path) or not os.path.exists(static_dir):
         print(f"Report not found at {output_dir}. Generating base report...")
         r = Report()

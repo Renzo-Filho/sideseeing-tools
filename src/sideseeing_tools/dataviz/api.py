@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
 
 # Initialize the router
-router = APIRouter(prefix="/api/vision", tags=["AI Vision"])
+router = APIRouter(prefix="/api/dataviz", tags=["Dataviz"])
 
 def get_safe_path(base_dir: str, filename: str) -> str:
     """Prevents directory traversal attacks by ensuring the path stays within base_dir."""
@@ -150,11 +150,11 @@ def get_instance_data(instance_name: str, request: Request):
     mask_classes = set()
 
     if ai_dir:
-        from sideseeing_tools.dataviz.visualizer import AI_Visualizer
+        from sideseeing_tools.dataviz.visualizer import Visualizer
         instance_ai_dir = os.path.join(ai_dir, instance_name)
         
         try:
-            df = AI_Visualizer._get_predictions_df(instance_ai_dir)
+            df = Visualizer._get_predictions_df(instance_ai_dir)
             if not df.empty:
                 for _, row in df.iterrows():
                     img_basename = os.path.basename(str(row['image_name']))
@@ -168,7 +168,7 @@ def get_instance_data(instance_name: str, request: Request):
 
                     if img_basename in bboxes:
                         if 'xmin' in df.columns and pd.notna(row.get('xmin')):
-                            color_tuple = AI_Visualizer._get_color_for_class(class_name)
+                            color_tuple = Visualizer._get_color_for_class(class_name)
                             bboxes[img_basename].append({
                                 "class_name": class_name,
                                 "confidence": float(row.get('confidence', 1.0)),

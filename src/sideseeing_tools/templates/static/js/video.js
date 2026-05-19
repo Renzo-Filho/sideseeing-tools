@@ -22,7 +22,7 @@ async function loadVideoInstanceData(instanceName) {
     videoResetUI();
     
     try {
-        const res = await fetch(`/api/vision/data/${instanceName}`);
+        const res = await fetch(`/api/dataviz/data/${instanceName}`);
         
         if (!res.ok) {
             throw new Error(`Server returned ${res.status}`);
@@ -65,7 +65,7 @@ async function triggerVideoExtraction(instanceName) {
     progress.classList.add('flex');
 
     try {
-        const res = await fetch(`/api/vision/extract/${instanceName}`, {
+        const res = await fetch(`/api/dataviz/extract/${instanceName}`, {
             method: 'POST'
         });
         
@@ -77,7 +77,7 @@ async function triggerVideoExtraction(instanceName) {
         // Poll for frames
         const pollInterval = setInterval(async () => {
             try {
-                const checkRes = await fetch(`/api/vision/data/${instanceName}`);
+                const checkRes = await fetch(`/api/dataviz/data/${instanceName}`);
                 const checkData = await checkRes.json();
                 
                 if (checkData.frames.length > 0) {
@@ -102,7 +102,7 @@ function videoRenderFrame() {
     const filename = currentVideoState.frames[currentVideoState.currentIndex];
     document.getElementById("video-filename").innerText = `${filename}`;
 
-    const imgUrl = `/api/vision/image/${currentVideoState.instance}/${filename}`;
+    const imgUrl = `/api/dataviz/image/${currentVideoState.instance}/${filename}`;
     document.getElementById("video-base-image").src = imgUrl;
 
     document.getElementById("video-frame-input").value = currentVideoState.currentIndex + 1;
@@ -139,7 +139,7 @@ function videoRenderGallery() {
     for(let i = start; i < end; i++) {
         const filename = currentVideoState.frames[i];
         const img = document.createElement("img");
-        img.src = `/api/vision/thumb/${currentVideoState.instance}/${filename}`;
+        img.src = `/api/dataviz/thumb/${currentVideoState.instance}/${filename}`;
         
         const baseClass = "w-14 h-14 object-cover rounded cursor-pointer border-2 transition-all hover:-translate-y-1 shrink-0";
         img.className = i === currentVideoState.currentIndex 

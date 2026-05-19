@@ -7,7 +7,7 @@ from functools import lru_cache
 from typing import List, Optional
 from sideseeing_tools.dataviz.adapters import PredictionAdapter
 
-class AI_Visualizer:
+class Visualizer:
     
     @staticmethod
     @lru_cache(maxsize=1)
@@ -82,7 +82,7 @@ class AI_Visualizer:
         image_basename = os.path.basename(img_path)
         
         # Load the cached DataFrame
-        df = AI_Visualizer._get_predictions_df(ai_dir)
+        df = Visualizer._get_predictions_df(ai_dir)
         
         # Filter dataframe for this specific image (using endswith to handle path variations)
         img_preds = df[df['image_name'].str.endswith(image_basename)]
@@ -102,7 +102,7 @@ class AI_Visualizer:
             if requested_classes is not None and class_name not in requested_classes:
                 continue
                 
-            mask_path = AI_Visualizer._find_mask_file(str(row['image_name']), ai_dir)
+            mask_path = Visualizer._find_mask_file(str(row['image_name']), ai_dir)
             
             if mask_path:
                 try:
@@ -114,7 +114,7 @@ class AI_Visualizer:
                         if overlay is None:
                             overlay = np.zeros((m_np.shape[0], m_np.shape[1], 4), dtype=np.uint8)
                         
-                        color = AI_Visualizer._get_color_for_class(class_name)
+                        color = Visualizer._get_color_for_class(class_name)
                         mask_pixels = m_np > 0
                         
                         # Apply color instantly using boolean indexing
@@ -134,4 +134,4 @@ class AI_Visualizer:
 
 # Quick wrapper for the API router to use
 def generate_mask_vis(img_path: str, ai_dir: str, requested_classes: List[str]):
-    return AI_Visualizer.generate_mask_vis(img_path, ai_dir, requested_classes)
+    return Visualizer.generate_mask_vis(img_path, ai_dir, requested_classes)

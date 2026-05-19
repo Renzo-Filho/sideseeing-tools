@@ -1,9 +1,8 @@
-# src/sideseeing_tools/dataviz_adapters.py
-
 import pandas as pd
 import os
 
 class PredictionAdapter:
+
     @staticmethod
     def load_and_normalize(csv_path: str) -> pd.DataFrame:
         """

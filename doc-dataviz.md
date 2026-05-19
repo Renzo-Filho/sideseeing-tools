@@ -1,8 +1,8 @@
-# SideSeeing AI Vision Integration (Local Server)
+# SideSeeing Dataviz Integration (Local Server)
 
 ## Overview
 
-The SideSeeing AI Vision integration introduces a scalable, dynamic web server for inspecting AI object detections and segmentation masks overlaid on video frames.
+The SideSeeing Dataviz integration introduces a scalable, dynamic web server for inspecting AI object detections and segmentation masks overlaid on video frames.
 
 To handle massive datasets and thousands of frames without freezing or inflating disk storage, this module transitions the report from a purely static HTML export (Server-Side Rendered) to a dynamic Client-Side Rendered (CSR) application backed by a lightning-fast local **FastAPI** server.
 
@@ -71,7 +71,7 @@ workspace/
 
 The server is invoked via the `sideseeing_tools.dataviz` module.
 
-**Full AI Vision Start:**
+**Full Dataviz Start:**
 
 ```bash
 python -m sideseeing_tools.dataviz \
@@ -93,7 +93,7 @@ python -m sideseeing_tools.dataviz \
 | `--frames_dir` |  | Path to store/read extracted video frames. | `[output_dir]/extracted_frames` |
 | `--port` | `-p` | The port to run the ASGI server on. | `5000` |
 
-Once the server boots, navigate to `http://localhost:5000` and click the **AI Vision (Dataviz)** tab.
+Once the server boots, navigate to `http://localhost:5000` and click the **Dataviz** tab.
 
 ---
 
@@ -121,7 +121,7 @@ This allows the core engine to remain entirely agnostic to the AI model used.
 
 ### Step 5.2: API Data Compilation (`dataviz/api.py`)
 
-When a user selects an instance (e.g., `route01`) from the dropdown, the frontend calls `/api/vision/data/route01`. The backend:
+When a user selects an instance (e.g., `route01`) from the dropdown, the frontend calls `/api/dataviz/data/route01`. The backend:
 
 1. Scans the `frames_dir` to build an ordered array of available `.jpg` frames.
 2. Reads the normalized AI DataFrame and separates the detected classes into two isolated sets: `box_classes` and `mask_classes` (based on the `is_mask` flag).
@@ -137,7 +137,7 @@ The UI relies on an SVG Layer (for drawing boxes) and an `<img>` tag (for the ba
 
 Drawing bounding boxes via SVG in the browser is cheap, but rendering complex segmentation masks is expensive. Instead of forcing the browser to calculate pixels, we delegate this to NumPy on the backend.
 When the frontend needs a mask, it requests an image URL containing the active classes:
-`/api/vision/mask/frame_001.jpg?classes=sidewalk,crosswalk`
+`/api/dataviz/mask/frame_001.jpg?classes=sidewalk,crosswalk`
 
 The Backend intercepts this and:
 

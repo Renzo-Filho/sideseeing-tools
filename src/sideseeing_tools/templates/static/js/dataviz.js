@@ -28,7 +28,7 @@ async function loadInstanceData(instanceName) {
     resetDatavizUI();
     
     try {
-        const res = await fetch(`/api/vision/data/${instanceName}`);
+        const res = await fetch(`/api/dataviz/data/${instanceName}`);
         const data = await res.json();
         
         currentDatavizState.instance = instanceName;
@@ -82,7 +82,7 @@ async function triggerExtraction(instanceName) {
 
     try {
         // Call the FastAPI background task we built earlier
-        const res = await fetch(`/api/vision/extract/${instanceName}`, {
+        const res = await fetch(`/api/dataviz/extract/${instanceName}`, {
             method: 'POST'
         });
         const data = await res.json();
@@ -91,7 +91,7 @@ async function triggerExtraction(instanceName) {
         // Simple polling: Check back in 10 seconds to see if frames appeared
         // In a real production app, we'd poll a status endpoint
         const pollInterval = setInterval(async () => {
-            const checkRes = await fetch(`/api/vision/data/${instanceName}`);
+            const checkRes = await fetch(`/api/dataviz/data/${instanceName}`);
             const checkData = await checkRes.json();
             
             if (checkData.frames.length > 0) {
@@ -114,12 +114,12 @@ function renderFrame() {
     document.getElementById("dataviz-filename").innerText = `${filename}`;
 
     // 1. Update Base Image
-    const imgUrl = `/api/vision/image/${currentDatavizState.instance}/${filename}`;
+    const imgUrl = `/api/dataviz/image/${currentDatavizState.instance}/${filename}`;
     document.getElementById("base-image").src = imgUrl;
 
     // 2. Update Mask Overlay (Pass only active mask classes)
     const activeMasksStr = Array.from(currentDatavizState.activeMaskClasses).join(",");
-    const maskUrl = `/api/vision/mask/${filename}?classes=${activeMasksStr}&instance=${currentDatavizState.instance}`;
+    const maskUrl = `/api/dataviz/mask/${filename}?classes=${activeMasksStr}&instance=${currentDatavizState.instance}`;
     document.getElementById("mask-layer").src = maskUrl;
 
     // 3. Update Inputs
@@ -322,7 +322,7 @@ function renderGallery() {
     for(let i = start; i < end; i++) {
         const filename = currentDatavizState.frames[i];
         const img = document.createElement("img");
-        img.src = `/api/vision/thumb/${currentDatavizState.instance}/${filename}`;
+        img.src = `/api/dataviz/thumb/${currentDatavizState.instance}/${filename}`;
         
         const baseClass = "w-14 h-14 object-cover rounded cursor-pointer border-2 transition-all hover:-translate-y-1 shrink-0";
         img.className = i === currentDatavizState.currentIndex 
