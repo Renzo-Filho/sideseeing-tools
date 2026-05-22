@@ -11,45 +11,66 @@ class Visualizer:
     
     @staticmethod
     @lru_cache(maxsize=1)
-    def _get_predictions_df(ai_dir: str):
+    def _get_predictions_df(ai_dir: str, predictions_csv: str = None):
         import pandas as pd
         
-        sam3_csv = os.path.join(ai_dir, "detections.csv")
-        ps_csv = os.path.join(ai_dir, "predictions.general.csv")
-        
         dfs = []
-        if os.path.exists(sam3_csv):
-            dfs.append(PredictionAdapter.load_and_normalize(sam3_csv))
-        if os.path.exists(ps_csv):
-            dfs.append(PredictionAdapter.load_and_normalize(ps_csv))
+        if predictions_csv and os.path.exists(predictions_csv):
+            dfs.append(PredictionAdapter.load_and_normalize(predictions_csv))
+        elif ai_dir:
+            # Direct files (Standard structure)
+            sam3_csv = os.path.join(ai_dir, "detections.csv")
+            ps_csv = os.path.join(ai_dir, "predictions.general.csv")
             
+            loaded_files = set()
+            
+            if os.path.exists(sam3_csv):
+                dfs.append(PredictionAdapter.load_and_normalize(sam3_csv))
+                loaded_files.add(os.path.abspath(sam3_csv))
+                
+            if os.path.exists(ps_csv):
+                dfs.append(PredictionAdapter.load_and_normalize(ps_csv))
+                loaded_files.add(os.path.abspath(ps_csv))
+                
+            # Recursive search for nested detections.csv (Branched structure)
+            nested_detections = glob.glob(os.path.join(ai_dir, "**", "detections.csv"), recursive=True)
+            for file_path in nested_detections:
+                abs_path = os.path.abspath(file_path)
+                if abs_path not in loaded_files:
+                    try:
+                        dfs.append(PredictionAdapter.load_and_normalize(abs_path))
+                        loaded_files.add(abs_path)
+                    except Exception as e:
+                        print(f"Warning: Failed to load {file_path}: {e}")
+                
         if dfs:
             return pd.concat(dfs, ignore_index=True)
         else:
-            print(f"Warning: No supported prediction CSV found in {ai_dir}")
+            print(f"Warning: No supported prediction CSV found in {ai_dir} or {predictions_csv}")
             return pd.DataFrame(columns=['image_name', 'class_name', 'confidence', 'is_mask'])
 
     @staticmethod
     @lru_cache(maxsize=500)
     def _find_mask_file(image_name: str, ai_dir: str) -> Optional[str]:
         """
-        Finds the corresponding mask PNG file for a given image.
+        Finds the corresponding mask file for a given image.
         Uses caching so we don't spam os.walk on the filesystem.
         """
-        # Assuming masks are saved with a _mask.png suffix
         base_name = os.path.splitext(os.path.basename(image_name))[0]
-        expected_mask_name = f"{base_name}_mask.png"
+        expected_names = [f"{base_name}_mask.png", f"{base_name}-mask.jpg", f"{base_name}-mask.png"]
         
         # Fast path: check if it's right in the ai_dir
-        direct_path = os.path.join(ai_dir, expected_mask_name)
-        if os.path.exists(direct_path):
-            return direct_path
-            
+        for expected_mask_name in expected_names:
+            direct_path = os.path.join(ai_dir, expected_mask_name)
+            if os.path.exists(direct_path):
+                return direct_path
+                
         # Slow path: Recursive search (happens only once per image due to cache)
-        matches = glob.glob(os.path.join(ai_dir, "**", expected_mask_name), recursive=True)
-        if matches:
-            return matches[0]
-            
+        for expected_mask_name in expected_names:
+            matches = glob.glob(os.path.join(ai_dir, "**", expected_mask_name), recursive=True)
+            if matches:
+                return matches[0]
+                
         return None
 
     @staticmethod
@@ -69,7 +90,7 @@ class Visualizer:
         return (r, g, b, 255)
 
     @staticmethod
-    def generate_mask_vis(img_path: str, ai_dir: str, requested_classes: List[str]) -> Optional[io.BytesIO]:
+    def generate_mask_vis(img_path: str, ai_dir: str, requested_classes: List[str], predictions_csv: str = None) -> Optional[io.BytesIO]:
         """
         Reads the prediction dataframe, finds the relevant mask images,
         and generates a transparent PNG overlay with the colored masks.
@@ -82,7 +103,7 @@ class Visualizer:
         image_basename = os.path.basename(img_path)
         
         # Load the cached DataFrame
-        df = Visualizer._get_predictions_df(ai_dir)
+        df = Visualizer._get_predictions_df(ai_dir, predictions_csv)
         
         # Filter dataframe for this specific image (using endswith to handle path variations)
         img_preds = df[df['image_name'].str.endswith(image_basename)]
@@ -133,5 +154,5 @@ class Visualizer:
         return None
 
 # Quick wrapper for the API router to use
-def generate_mask_vis(img_path: str, ai_dir: str, requested_classes: List[str]):
-    return Visualizer.generate_mask_vis(img_path, ai_dir, requested_classes)
+def generate_mask_vis(img_path: str, ai_dir: str, requested_classes: List[str], predictions_csv: str = None):
+    return Visualizer.generate_mask_vis(img_path, ai_dir, requested_classes, predictions_csv)

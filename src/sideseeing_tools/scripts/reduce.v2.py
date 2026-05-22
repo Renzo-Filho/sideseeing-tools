@@ -32,4 +32,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     reduce_csv_per_column(args.input_csv, args.output_csv)
-

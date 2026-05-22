@@ -61,9 +61,33 @@ workspace/
         ├── predictions.general.csv  <-- (Project Sidewalk format)
         ├── detections.csv           <-- (SAM3 format)
         └── masks/                   
+        └── masks/                   
             └── route01_0001_mask.png 
 
 ```
+
+### Branched Dataset Structure (Advanced)
+
+If you are working with massive datasets that do not fit the standardized structure (e.g., your extracted frames, segmentation masks, and predictions are spread across entirely different directories), you can use the branched structure flags to map the data without duplicating files.
+
+```text
+remote_storage/
+├── data/                                 
+│   └── 01_image_sequences/               <-- Passed as: --frames_dir
+│       └── route01/                      <-- The server falls back to looking directly inside the instance folder
+│           └── image_0001.jpg
+├── results/
+│   └── segmentation/                     <-- Passed as: --masks_dir
+│       ├── sam3-crosswalk/               <-- Subdirectories are recursively searched for masks & detections.csv
+│       │   ├── route01/
+│       │   │   └── image_0001-mask.jpg   <-- Naming: _mask.png, -mask.jpg, or -mask.png
+│       │   └── detections.csv            <-- Detections for this class
+│       └── sam3-curbramp/
+└── analysis/
+    └── predictions.csv                   <-- Passed as: --predictions_csv (e.g. Project Sidewalk format)
+```
+
+In this mode, the server will intelligently fall back to looking inside `route01/` instead of `route01-frames/` for images. It will also recursively aggregate all `detections.csv` files found within the `masks_dir` and merge them with the global `predictions_csv`.
 
 ---
 
@@ -91,6 +115,8 @@ python -m sideseeing_tools.dataviz \
 | `--output_dir` | `-o` | Path to save/read the base HTML report. | `./output` |
 | `--ai_dir` |  | Path to the directory containing CSV prediction files. | `None` |
 | `--frames_dir` |  | Path to store/read extracted video frames. | `[output_dir]/extracted_frames` |
+| `--masks_dir` |  | Optional: Path to a branched directory containing segmentation masks. Recursively searched. | `None` |
+| `--predictions_csv` |  | Optional: Direct path to a predictions CSV file (e.g. Project Sidewalk format). | `None` |
 | `--port` | `-p` | The port to run the ASGI server on. | `5000` |
 
 Once the server boots, navigate to `http://localhost:5000` and click the **Dataviz** tab.

@@ -26,8 +26,11 @@ def get_raw_image(instance_name: str, filename: str, request: Request):
     """Serves the raw extracted frame."""
     frames_dir = request.app.state.frames_dir
     
-    # Append the required suffix to find the correct folder
+    # Append the required suffix to find the correct folder, or fallback to exact instance name
     target_path = os.path.join(f"{instance_name}-frames", filename)
+    if not os.path.exists(os.path.join(frames_dir, target_path)):
+        target_path = os.path.join(instance_name, filename)
+        
     img_path = get_safe_path(frames_dir, target_path)
     
     return FileResponse(img_path)
@@ -38,8 +41,11 @@ def get_thumbnail(instance_name: str, filename: str, request: Request):
     frames_dir = request.app.state.frames_dir
     output_dir = getattr(request.app.state, "output_dir", "output")
     
-    # Append the required suffix to find the correct folder
+    # Append the required suffix to find the correct folder, or fallback to exact instance name
     target_path = os.path.join(f"{instance_name}-frames", filename)
+    if not os.path.exists(os.path.join(frames_dir, target_path)):
+        target_path = os.path.join(instance_name, filename)
+        
     img_path = get_safe_path(frames_dir, target_path)
     
     # Setup thumb cache directory
@@ -70,8 +76,11 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
     ai_dir = request.app.state.ai_dir
     output_dir = getattr(request.app.state, "output_dir", "output")
     
-    # Append the required suffix to find the correct base image
+    # Append the required suffix to find the correct base image, or fallback
     target_path = os.path.join(f"{instance}-frames", filename)
+    if not os.path.exists(os.path.join(frames_dir, target_path)):
+        target_path = os.path.join(instance, filename)
+        
     img_path = get_safe_path(frames_dir, target_path)
     
     if classes == "":
@@ -93,15 +102,18 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
     if os.path.exists(cache_path):
         return FileResponse(cache_path)
 
-    # Scope to the specific instance in the preds folder
-    instance_ai_dir = os.path.join(ai_dir, instance) if ai_dir and instance else None
+    masks_dir = getattr(request.app.state, "masks_dir", None)
+    predictions_csv = getattr(request.app.state, "predictions_csv", None)
+    
+    # Scope to the specific instance in the preds folder, or use the global masks_dir
+    instance_ai_dir = masks_dir if masks_dir else (os.path.join(ai_dir, instance) if ai_dir and instance else None)
     
     if not instance_ai_dir or not os.path.exists(instance_ai_dir):
         return _empty_transparent_png()
         
     try:
         from sideseeing_tools.dataviz.visualizer import generate_mask_vis 
-        img_io = generate_mask_vis(img_path, instance_ai_dir, requested_classes)
+        img_io = generate_mask_vis(img_path, instance_ai_dir, requested_classes, predictions_csv)
         
         if img_io:
             with open(cache_path, "wb") as f:
@@ -134,6 +146,8 @@ def get_instance_data(instance_name: str, request: Request):
 
     # 1. Fetch available frames
     instance_frames_dir = os.path.join(frames_dir, f"{instance_name}-frames")
+    if not os.path.exists(instance_frames_dir):
+        instance_frames_dir = os.path.join(frames_dir, instance_name)
     
     # If frames aren't extracted yet, return empty arrays so the UI knows to show a "No frames" state
     if not os.path.exists(instance_frames_dir):
@@ -149,12 +163,14 @@ def get_instance_data(instance_name: str, request: Request):
     box_classes = set()
     mask_classes = set()
 
-    if ai_dir:
+    predictions_csv = getattr(request.app.state, "predictions_csv", None)
+
+    if ai_dir or predictions_csv:
         from sideseeing_tools.dataviz.visualizer import Visualizer
-        instance_ai_dir = os.path.join(ai_dir, instance_name)
+        instance_ai_dir = os.path.join(ai_dir, instance_name) if ai_dir else None
         
         try:
-            df = Visualizer._get_predictions_df(instance_ai_dir)
+            df = Visualizer._get_predictions_df(instance_ai_dir, predictions_csv)
             if not df.empty:
                 for _, row in df.iterrows():
                     img_basename = os.path.basename(str(row['image_name']))

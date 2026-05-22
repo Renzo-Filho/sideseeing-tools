@@ -68,7 +68,7 @@ async def trigger_extraction(instance_name: str, background_tasks: BackgroundTas
 
 # --- Server Start Logic ---
 
-def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None, frames_dir: str = None, port: int = 5000, host: str = "0.0.0.0"):
+def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None, frames_dir: str = None, masks_dir: str = None, predictions_csv: str = None, port: int = 5000, host: str = "0.0.0.0"):
     """
     Starts the local FastAPI server. Can be called via CLI or Python script.
     """
@@ -77,6 +77,8 @@ def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None,
     app.state.output_dir = output_dir
     app.state.ai_dir = ai_dir
     app.state.frames_dir = frames_dir
+    app.state.masks_dir = masks_dir
+    app.state.predictions_csv = predictions_csv
 
     index_path = os.path.join(output_dir, "index.html")
     static_dir = os.path.join(output_dir, "static")
