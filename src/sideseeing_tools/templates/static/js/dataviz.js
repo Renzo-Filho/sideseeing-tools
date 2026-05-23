@@ -54,8 +54,7 @@ async function loadInstanceData(instanceName) {
         overlay.classList.add('hidden');
         
         // Disable tabs if data doesn't exist
-        document.getElementById('tab-btn-boxes').disabled = data.box_classes.length === 0;
-        document.getElementById('tab-btn-masks').disabled = data.mask_classes.length === 0;
+        // (Removed to allow free switching and show empty state messages instead)
         
         // Auto-switch to masks if no boxes exist
         if(data.box_classes.length === 0 && data.mask_classes.length > 0) {
@@ -115,7 +114,15 @@ function renderFrame() {
 
     // 1. Update Base Image
     const imgUrl = `/api/dataviz/image/${currentDatavizState.instance}/${filename}`;
-    document.getElementById("base-image").src = imgUrl;
+    const baseImage = document.getElementById("base-image");
+    baseImage.src = imgUrl;
+    
+    baseImage.onload = () => {
+        const svg = document.getElementById("svg-layer");
+        svg.setAttribute("viewBox", `0 0 ${baseImage.naturalWidth} ${baseImage.naturalHeight}`);
+        const canvas = document.getElementById("dataviz-canvas");
+        canvas.style.aspectRatio = `${baseImage.naturalWidth} / ${baseImage.naturalHeight}`;
+    };
 
     // 2. Update Mask Overlay (Pass only active mask classes)
     const activeMasksStr = Array.from(currentDatavizState.activeMaskClasses).join(",");

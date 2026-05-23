@@ -22,6 +22,7 @@ class SideSeeingDS:
             generate_metadata=False,
             extract_media=False,
             google_api_key=None,
+            metadata_path=None,
         ):
         print('INFO. Loading data.')
         self.name = name
@@ -31,6 +32,7 @@ class SideSeeingDS:
 
         self.root_dir = root_dir if root_dir.endswith(os.path.sep) else f'{root_dir}{os.path.sep}'
         self.data_dir = os.path.join(self.root_dir, subdir_data)
+        self.metadata_path = metadata_path if metadata_path else os.path.join(self.root_dir, 'metadata.csv')
         self.setup(extract_media)
 
         if generate_metadata:
@@ -91,11 +93,13 @@ class SideSeeingDS:
             yield self.instances[k]
 
     def metadata(self, save=False, google_api_key=None):
+        path = self.metadata_path
+
         if self.size == 0:
             print(f'ERROR. Dataset is empty.')
-            return
-
-        path = os.path.join(f'{self.root_dir}', 'metadata.csv')
+            if path and os.path.exists(path):
+                return utils.load_csv_data_with_pandas(path)
+            return None
 
         if os.path.exists(path) and not save:
             df = utils.load_csv_data_with_pandas(path)

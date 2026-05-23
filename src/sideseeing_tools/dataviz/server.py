@@ -68,17 +68,24 @@ async def trigger_extraction(instance_name: str, background_tasks: BackgroundTas
 
 # --- Server Start Logic ---
 
-def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None, frames_dir: str = None, masks_dir: str = None, predictions_csv: str = None, port: int = 5000, host: str = "0.0.0.0"):
+def start_server(input_dir: str, output_dir: str = "output", port: int = 5000, host: str = "0.0.0.0"):
     """
     Starts the local FastAPI server. Can be called via CLI or Python script.
     """
+    data_dir = os.path.join(input_dir, "data")
+    frames_dir = os.path.join(input_dir, "frames")
+    ai_dir = os.path.join(input_dir, "preds")
+    predictions_csv = os.path.join(ai_dir, "predictions.csv")
+    metadata_csv = os.path.join(input_dir, "metadata.csv")
+
     # Store these globally in the app state
-    app.state.input_dir = input_dir
+    app.state.input_dir = data_dir
     app.state.output_dir = output_dir
     app.state.ai_dir = ai_dir
     app.state.frames_dir = frames_dir
-    app.state.masks_dir = masks_dir
+    app.state.masks_dir = None
     app.state.predictions_csv = predictions_csv
+    app.state.metadata_csv = metadata_csv
 
     index_path = os.path.join(output_dir, "index.html")
     static_dir = os.path.join(output_dir, "static")
@@ -88,10 +95,12 @@ def start_server(input_dir: str, output_dir: str = "output", ai_dir: str = None,
     if not os.path.exists(index_path) or not os.path.exists(static_dir):
         print(f"Report not found at {output_dir}. Generating base report...")
         r = Report()
-        r.generate_report(input_dir=input_dir, output_dir=output_dir)
+        r.generate_report(input_dir=input_dir, output_dir=output_dir, metadata_csv=metadata_csv)
         print("Base report generated successfully.")
     else:
         print(f"Existing report found at {output_dir}. Booting server...")
+        # Always update static assets on boot for better developer experience
+        Report()._copy_static_assets(output_dir)
 
     # Safely mount static directories if they exist
     if os.path.exists(static_dir):

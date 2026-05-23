@@ -11,18 +11,41 @@ class Visualizer:
     
     @staticmethod
     @lru_cache(maxsize=1)
+    def _build_dataset_index(ai_dir: str):
+        """Builds a cached index of detections and masks to avoid slow recursive lookups."""
+        index = {
+            'detections_csv': [],
+            'masks': {}
+        }
+        if not ai_dir or not os.path.exists(ai_dir):
+            return index
+            
+        for root, _, files in os.walk(ai_dir):
+            for file in files:
+                if file == "detections.csv":
+                    index['detections_csv'].append(os.path.join(root, file))
+                elif "mask" in file.lower() and file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    if file not in index['masks']:
+                        index['masks'][file] = []
+                    index['masks'][file].append(os.path.join(root, file))
+        return index
+
+    @staticmethod
+    @lru_cache(maxsize=1)
     def _get_predictions_df(ai_dir: str, predictions_csv: str = None):
         import pandas as pd
         
         dfs = []
+        loaded_files = set()
+        
         if predictions_csv and os.path.exists(predictions_csv):
             dfs.append(PredictionAdapter.load_and_normalize(predictions_csv))
-        elif ai_dir:
+            loaded_files.add(os.path.abspath(predictions_csv))
+            
+        if ai_dir:
             # Direct files (Standard structure)
             sam3_csv = os.path.join(ai_dir, "detections.csv")
             ps_csv = os.path.join(ai_dir, "predictions.general.csv")
-            
-            loaded_files = set()
             
             if os.path.exists(sam3_csv):
                 dfs.append(PredictionAdapter.load_and_normalize(sam3_csv))
@@ -32,9 +55,9 @@ class Visualizer:
                 dfs.append(PredictionAdapter.load_and_normalize(ps_csv))
                 loaded_files.add(os.path.abspath(ps_csv))
                 
-            # Recursive search for nested detections.csv (Branched structure)
-            nested_detections = glob.glob(os.path.join(ai_dir, "**", "detections.csv"), recursive=True)
-            for file_path in nested_detections:
+            # Use index for nested detections.csv (Branched structure)
+            index = Visualizer._build_dataset_index(ai_dir)
+            for file_path in index['detections_csv']:
                 abs_path = os.path.abspath(file_path)
                 if abs_path not in loaded_files:
                     try:
@@ -50,11 +73,11 @@ class Visualizer:
             return pd.DataFrame(columns=['image_name', 'class_name', 'confidence', 'is_mask'])
 
     @staticmethod
-    @lru_cache(maxsize=500)
+    @lru_cache(maxsize=5000)
     def _find_mask_file(image_name: str, ai_dir: str) -> Optional[str]:
         """
         Finds the corresponding mask file for a given image.
-        Uses caching so we don't spam os.walk on the filesystem.
+        Uses a cached index so we don't spam os.walk on the filesystem.
         """
         base_name = os.path.splitext(os.path.basename(image_name))[0]
         expected_names = [f"{base_name}_mask.png", f"{base_name}-mask.jpg", f"{base_name}-mask.png"]
@@ -65,10 +88,19 @@ class Visualizer:
             if os.path.exists(direct_path):
                 return direct_path
                 
-        # Slow path: Recursive search (happens only once per image due to cache)
+        # Index path
+        index = Visualizer._build_dataset_index(ai_dir)
         for expected_mask_name in expected_names:
-            matches = glob.glob(os.path.join(ai_dir, "**", expected_mask_name), recursive=True)
+            matches = index['masks'].get(expected_mask_name, [])
             if matches:
+                if len(matches) == 1:
+                    return matches[0]
+                # If multiple, try to disambiguate using parent directory
+                parent_dir = os.path.basename(os.path.dirname(image_name))
+                if parent_dir:
+                    for match in matches:
+                        if parent_dir in match:
+                            return match
                 return matches[0]
                 
         return None

@@ -105,8 +105,8 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
     masks_dir = getattr(request.app.state, "masks_dir", None)
     predictions_csv = getattr(request.app.state, "predictions_csv", None)
     
-    # Scope to the specific instance in the preds folder, or use the global masks_dir
-    instance_ai_dir = masks_dir if masks_dir else (os.path.join(ai_dir, instance) if ai_dir and instance else None)
+    # Scope to the global ai_dir and let visualizer index logic handle nested structures
+    instance_ai_dir = ai_dir
     
     if not instance_ai_dir or not os.path.exists(instance_ai_dir):
         return _empty_transparent_png()
@@ -164,15 +164,22 @@ def get_instance_data(instance_name: str, request: Request):
     mask_classes = set()
 
     predictions_csv = getattr(request.app.state, "predictions_csv", None)
-
+    ai_dir = getattr(request.app.state, "ai_dir", None)
+    
     if ai_dir or predictions_csv:
         from sideseeing_tools.dataviz.visualizer import Visualizer
-        instance_ai_dir = os.path.join(ai_dir, instance_name) if ai_dir else None
+        
+        # In the strict dataset format, ai_dir is the root preds/ folder
+        instance_ai_dir = ai_dir
         
         try:
             df = Visualizer._get_predictions_df(instance_ai_dir, predictions_csv)
             if not df.empty:
-                for _, row in df.iterrows():
+                # Fast filtering to only iterate over frames belonging to this instance
+                valid_basenames = set(bboxes.keys())
+                instance_df = df[df['image_name'].apply(lambda x: os.path.basename(str(x)) in valid_basenames)]
+                
+                for _, row in instance_df.iterrows():
                     img_basename = os.path.basename(str(row['image_name']))
                     class_name = str(row['class_name'])
                     

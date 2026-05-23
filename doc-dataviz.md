@@ -42,81 +42,52 @@ pip install -r requirements.txt
 
 ## 2. Directory Structure Setup
 
-To protect the integrity of your raw data, the server uses a decoupled workspace approach. You should organize your workspace as follows before starting the server:
+The server requires a strict, unified dataset layout under a single root directory. You must organize your workspace as follows before starting the server:
 
 ```text
-workspace/
-├── dataset/                 <-- Passed as: -i ./dataset
+dataset_root/                <-- Passed as: -i ./dataset_root
+├── metadata.csv
+├── data/
 │   └── route01/             <-- (This is your "instance_name")
 │       ├── video.mp4
 │       └── sensors.three.csv
 │
-├── frames/                  <-- Passed as: --frames_dir ./frames
+├── frames/
 │   └── route01-frames/      <-- MUST be named exactly {instance_name}-frames
 │       ├── route01_0001.jpg 
 │       └── route01_0002.jpg
 │
-└── preds/                   <-- Passed as: --ai_dir ./preds
-    └── route01/             <-- AI data scoped by instance
-        ├── predictions.general.csv  <-- (Project Sidewalk format)
-        ├── detections.csv           <-- (SAM3 format)
-        └── masks/                   
-        └── masks/                   
-            └── route01_0001_mask.png 
-
+└── preds/
+    ├── predictions.csv      <-- Global predictions file (Project Sidewalk format)
+    ├── sam3-crosswalk/      <-- Model-specific predictions
+    │   ├── detections.csv
+    │   └── route01-frames/
+    │       └── route01_0001-mask.png
+    └── sam3-curbramp/
+        ├── detections.csv
+        └── route01-frames/
+            └── route01_0001-mask.png
 ```
-
-### Branched Dataset Structure (Advanced)
-
-If you are working with massive datasets that do not fit the standardized structure (e.g., your extracted frames, segmentation masks, and predictions are spread across entirely different directories), you can use the branched structure flags to map the data without duplicating files.
-
-```text
-remote_storage/
-├── data/                                 
-│   └── 01_image_sequences/               <-- Passed as: --frames_dir
-│       └── route01/                      <-- The server falls back to looking directly inside the instance folder
-│           └── image_0001.jpg
-├── results/
-│   └── segmentation/                     <-- Passed as: --masks_dir
-│       ├── sam3-crosswalk/               <-- Subdirectories are recursively searched for masks & detections.csv
-│       │   ├── route01/
-│       │   │   └── image_0001-mask.jpg   <-- Naming: _mask.png, -mask.jpg, or -mask.png
-│       │   └── detections.csv            <-- Detections for this class
-│       └── sam3-curbramp/
-└── analysis/
-    └── predictions.csv                   <-- Passed as: --predictions_csv (e.g. Project Sidewalk format)
-```
-
-In this mode, the server will intelligently fall back to looking inside `route01/` instead of `route01-frames/` for images. It will also recursively aggregate all `detections.csv` files found within the `masks_dir` and merge them with the global `predictions_csv`.
-
----
 
 ## 3. Running the Server (CLI)
 
 The server is invoked via the `sideseeing_tools.dataviz` module.
 
-**Full Dataviz Start:**
+**Start the Server:**
 
 ```bash
 python -m sideseeing_tools.dataviz \
-    -i ./dataset \
+    -i ./dataset_root \
     -o ./report_output \
-    --ai_dir ./preds \
-    --frames_dir ./frames \
     -p 5000
-
 ```
 
 ### CLI Arguments Reference
 
 | Argument | Short | Description | Default |
 | --- | --- | --- | --- |
-| `--input_dir` | `-i` | **(Required)** Path to the raw SideSeeing dataset. | *None* |
-| `--output_dir` | `-o` | Path to save/read the base HTML report. | `./output` |
-| `--ai_dir` |  | Path to the directory containing CSV prediction files. | `None` |
-| `--frames_dir` |  | Path to store/read extracted video frames. | `[output_dir]/extracted_frames` |
-| `--masks_dir` |  | Optional: Path to a branched directory containing segmentation masks. Recursively searched. | `None` |
-| `--predictions_csv` |  | Optional: Direct path to a predictions CSV file (e.g. Project Sidewalk format). | `None` |
+| `--input_dir` | `-i` | **(Required)** Path to the root dataset directory containing `data/`, `frames/`, `preds/`, etc. | *None* |
+| `--output_dir` | `-o` | Path to save/read the generated HTML report and static files. | `./output` |
 | `--port` | `-p` | The port to run the ASGI server on. | `5000` |
 
 Once the server boots, navigate to `http://localhost:5000` and click the **Dataviz** tab.
@@ -190,8 +161,9 @@ Because extracting frames from `.mp4` files is CPU-intensive, the server handles
 
 ## 7. Programmatic Usage (Python API)
 
-You can embed the server boot sequence into automated pipelines or Jupyter Notebooks:
+You can embed the server boot sequence into automated pipelines or Jupyter Notebooks.
 
+**Standard Directory Structure:**
 ```python
 from sideseeing_tools.dataviz import start_server
 
@@ -203,7 +175,21 @@ start_server(
     frames_dir="./data/frames",
     port=8080
 )
+```
 
+**Branched Dataset Structure:**
+```python
+from sideseeing_tools.dataviz import start_server
+
+start_server(
+    input_dir="./remote_storage/data",
+    output_dir="./report_output",
+    frames_dir="./remote_storage/data/01_image_sequences",
+    masks_dir="./remote_storage/results/segmentation",
+    predictions_csv="./remote_storage/analysis/predictions.csv",
+    metadata_csv="./remote_storage/dataset/metadata.csv",
+    port=5000
+)
 ```
 
 ## 8. Extending AI Models (Adapter Pattern)

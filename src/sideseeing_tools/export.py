@@ -28,7 +28,7 @@ class Report:
         env.filters['tojson'] = json.dumps
         self.template = env.get_template(self.DEFAULT_TEMPLATE_NAME)
     
-    def _load_sideseeing_data(self, input_dir, generate_metadata=False, google_api_key=None):
+    def _load_sideseeing_data(self, input_dir, generate_metadata=False, google_api_key=None, metadata_csv=None):
         """
         Loads the dataset using sideseeing-tools.
         """
@@ -37,8 +37,10 @@ class Report:
             
         return sideseeing.SideSeeingDS(
             root_dir=input_dir, 
+            subdir_data='data',
             generate_metadata=generate_metadata,
-            google_api_key=google_api_key
+            google_api_key=google_api_key,
+            metadata_path=metadata_csv
         )
 
     def _create_summary(self, ds: sideseeing.SideSeeingDS, data_dir_path: str) -> Dict:
@@ -56,7 +58,7 @@ class Report:
         summary_data = {}
         metadata_df = ds.metadata(save=True)
         
-        if metadata_df.empty:
+        if metadata_df is None or metadata_df.empty:
             print("WARNING: metadata.csv is empty or could not be found.")
             return {
                 'total_instances': 0, 'total_duration_human': '0s', 
@@ -66,7 +68,7 @@ class Report:
 
         metadata_df.set_index('name', inplace=True, drop=False)
 
-        summary_data['total_instances'] = ds.size
+        summary_data['total_instances'] = max(ds.size, len(metadata_df))
         summary_data['total_duration_human'] = utils.format_duration(metadata_df['media_total_time'].sum())
         summary_data['total_size_gb'] = utils.get_dir_size(data_dir_path)
 
@@ -76,16 +78,14 @@ class Report:
         sample_id_counter = 1
 
         print("Processing sample details...")
-        for instance in ds.iterator:
-            if instance.name not in metadata_df.index:
-                print(f"WARNING: Skipping sample '{instance.name}' as it's not in metadata.csv.")
-                continue
+        for instance_name in metadata_df.index:
+            instance = ds.instances.get(instance_name) if hasattr(ds, 'instances') else None
             
-            meta = metadata_df.loc[instance.name]
+            meta = metadata_df.loc[instance_name]
             
             details = {
                 'id': sample_id_counter,
-                'name': instance.name
+                'name': instance_name
             }
             
             try:
@@ -100,7 +100,7 @@ class Report:
             details['device_manufacturer'] = meta.get('manufacturer', 'N/A')
             details['device_model'] = meta.get('model', '')
 
-            sample_dist_km = instance.calculate_sample_distance_traveled()
+            sample_dist_km = instance.calculate_sample_distance_traveled() if instance else 0.0
             details['distance_km'] = sample_dist_km
             total_distance_km += sample_dist_km
             
@@ -110,19 +110,26 @@ class Report:
 
             details['location'] = meta.get('location', 'N/A')
 
-            geo_center = instance.geolocation_center 
+            geo_center = instance.geolocation_center if instance else None
+            if geo_center is None:
+                lat = meta.get('latitude')
+                lon = meta.get('longitude')
+                if pd.notnull(lat) and pd.notnull(lon):
+                    geo_center = [lat, lon]
+
             if geo_center: 
                 geo_centers_map.append({
                     'lat': geo_center[0],
                     'lon': geo_center[1],
-                    'name': instance.name
+                    'name': instance_name
                 })
 
             available_sensors_count = 0
-            for axis in ['sensors1', 'sensors3', 'sensors6']:
-                sensor_dict = getattr(instance, axis, {})
-                if sensor_dict:
-                    available_sensors_count += len(sensor_dict)
+            if instance:
+                for axis in ['sensors1', 'sensors3', 'sensors6']:
+                    sensor_dict = getattr(instance, axis, {})
+                    if sensor_dict:
+                        available_sensors_count += len(sensor_dict)
             
             details['sensors'] = available_sensors_count
             sample_details.append(details)
@@ -383,12 +390,12 @@ class Report:
 
         return instance_json_map if instance_json_map else None
 
-    def generate_report(self, input_dir: str, output_dir: str, title: str = None, generate_metadata: bool = False, google_api_key: str = None, version="1"):
+    def generate_report(self, input_dir: str, output_dir: str, title: str = None, generate_metadata: bool = False, google_api_key: str = None, version="1", metadata_csv: str = None):
         """
         Generate the HTML report from the SideSeeing dataset located in 'input_dir' and save it to 'output_dir'.
         """
         print(f"Loading directory: {input_dir}")
-        ds = self._load_sideseeing_data(input_dir, generate_metadata, google_api_key)
+        ds = self._load_sideseeing_data(input_dir, generate_metadata, google_api_key, metadata_csv)
 
         os.makedirs(output_dir, exist_ok=True)
 
@@ -404,8 +411,6 @@ class Report:
             'geo': self._process_geo_data(ds, output_dir_data)
         }
 
-        processed_sections = {key: value for key, value in sections.items() if value is not None}
-
         if not title:
             input_dir_stz = input_dir
             while input_dir_stz.endswith(os.sep):
@@ -414,7 +419,7 @@ class Report:
 
         context = {
             "title": title,
-            "sections": processed_sections,
+            "sections": sections,
             "summary": summary, 
             "generation_date": datetime.now().strftime('%Y/%m/%d %H:%M:%S'),
             "version": version,
