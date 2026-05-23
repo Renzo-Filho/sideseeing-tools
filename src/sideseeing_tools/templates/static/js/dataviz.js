@@ -145,33 +145,56 @@ function renderBBoxes(filename) {
     svg.innerHTML = ""; 
 
     const boxes = currentDatavizState.bboxes[filename] || [];
+    let imageLevelCount = 0;
+    const baseImage = document.getElementById("base-image");
+    
     boxes.forEach(box => {
         // Only draw if the box class is currently active
         if(currentDatavizState.activeBoxClasses.has(box.class_name)) {
             const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
             group.setAttribute("class", `bbox-group layer-${box.class_name.replace(/[^a-zA-Z0-9]/g, '-')}`);
             
+            let xmin = box.xmin;
+            let ymin = box.ymin;
+            let xmax = box.xmax;
+            let ymax = box.ymax;
+
+            if (box.is_image_level) {
+                xmin = 0;
+                ymin = 0;
+                xmax = baseImage.naturalWidth || 1000;
+                ymax = baseImage.naturalHeight || 1000;
+                
+                // Add a small inset so multiple image-level boxes don't perfectly overlap
+                const inset = (imageLevelCount * 12) + 4;
+                xmin += inset;
+                ymin += inset;
+                xmax -= inset;
+                ymax -= inset;
+                imageLevelCount++;
+            }
+            
             const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute("x", box.xmin);
-            rect.setAttribute("y", box.ymin);
-            rect.setAttribute("width", box.xmax - box.xmin);
-            rect.setAttribute("height", box.ymax - box.ymin);
+            rect.setAttribute("x", xmin);
+            rect.setAttribute("y", ymin);
+            rect.setAttribute("width", Math.max(0, xmax - xmin));
+            rect.setAttribute("height", Math.max(0, ymax - ymin));
             rect.setAttribute("fill", "none");
             rect.setAttribute("stroke", box.color || "#00ff00");
-            rect.setAttribute("stroke-width", "2");
+            rect.setAttribute("stroke-width", box.is_image_level ? "8" : "2");
             rect.style.transition = "stroke-width 0.2s, opacity 0.2s";
 
             const textBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            textBg.setAttribute("x", box.xmin);
-            textBg.setAttribute("y", box.ymin - 16);
+            textBg.setAttribute("x", xmin);
+            textBg.setAttribute("y", ymin - 16);
             textBg.setAttribute("width", (box.class_name.length * 6) + 8);
             textBg.setAttribute("height", 16);
             textBg.setAttribute("fill", box.color || "#00ff00");
             textBg.setAttribute("rx", "2");
 
             const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute("x", box.xmin + 4);
-            text.setAttribute("y", box.ymin - 4);
+            text.setAttribute("x", xmin + 4);
+            text.setAttribute("y", ymin - 4);
             text.setAttribute("fill", "white");
             text.setAttribute("font-size", "10px");
             text.setAttribute("font-family", "sans-serif");

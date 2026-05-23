@@ -20,7 +20,7 @@ class PredictionAdapter:
             return PredictionAdapter._normalize_project_sidewalk(df)
 
         # Detect Format 2: SAM3 Detections (Long Format)
-        # columns: image_name, class_name, num_detections
+        # columns: image_name, class_name (or prompt), num_detections
         elif 'image_name' in df.columns and 'num_detections' in df.columns:
             return PredictionAdapter._normalize_sam3(df)
 
@@ -51,7 +51,12 @@ class PredictionAdapter:
         """Standardizes SAM3 detection format."""
         normalized = df[df['num_detections'] > 0].copy()
         
-        normalized['confidence'] = 1.0 # Add default if scores aren't present
+        # Handle cases where the SAM3 csv uses 'prompt' instead of 'class_name'
+        if 'prompt' in normalized.columns:
+            normalized.rename(columns={'prompt': 'class_name'}, inplace=True)
+            
+        # Add default score if scores column exists but might have empties, or if missing entirely
+        normalized['confidence'] = 1.0 
         normalized['is_mask'] = True   # SAM3 provides segmentation masks
         
         return normalized[['image_name', 'class_name', 'confidence', 'is_mask']]
