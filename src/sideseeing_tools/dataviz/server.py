@@ -101,6 +101,21 @@ def start_server(input_dir: str, output_dir: str = "output", port: int = 5000, h
         print(f"Existing report found at {output_dir}. Booting server...")
         # Always update static assets on boot for better developer experience
         Report()._copy_static_assets(output_dir)
+        
+        # Fast HTML cache-busting update (so we don't need to rebuild the massive JSONs)
+        import re
+        import time
+        if os.path.exists(index_path):
+            try:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                new_buster = str(int(time.time()))
+                content = re.sub(r'(\.js\?v=)\d+', r'\g<1>' + new_buster, content)
+                content = re.sub(r'(\.css\?v=)\d+', r'\g<1>' + new_buster, content)
+                with open(index_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception as e:
+                print(f"Failed to update cache-buster: {e}")
 
     # Safely mount static directories if they exist
     if os.path.exists(static_dir):
