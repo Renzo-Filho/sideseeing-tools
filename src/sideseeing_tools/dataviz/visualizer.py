@@ -38,65 +38,83 @@ class Visualizer:
         dfs = []
         loaded_files = set()
         
-        if predictions_csv and os.path.exists(predictions_csv):
-            dfs.append(PredictionAdapter.load_and_normalize(predictions_csv))
-            loaded_files.add(os.path.abspath(predictions_csv))
+        def load_and_append(csv_path):
+            if os.path.exists(csv_path):
+                abs_path = os.path.abspath(csv_path)
+                if abs_path not in loaded_files:
+                    try:
+                        df = PredictionAdapter.load_and_normalize(abs_path)
+                        # Track the exact directory this CSV came from to avoid mask collisions
+                        df['mask_base'] = os.path.dirname(abs_path)
+                        dfs.append(df)
+                        loaded_files.add(abs_path)
+                    except Exception as e:
+                        print(f"Warning: Failed to load {csv_path}: {e}")
+
+        if predictions_csv:
+            load_and_append(predictions_csv)
             
         if ai_dir:
             # Direct files (Standard structure)
-            sam3_csv = os.path.join(ai_dir, "detections.csv")
-            ps_csv = os.path.join(ai_dir, "predictions.general.csv")
-            
-            if os.path.exists(sam3_csv):
-                dfs.append(PredictionAdapter.load_and_normalize(sam3_csv))
-                loaded_files.add(os.path.abspath(sam3_csv))
-                
-            if os.path.exists(ps_csv):
-                dfs.append(PredictionAdapter.load_and_normalize(ps_csv))
-                loaded_files.add(os.path.abspath(ps_csv))
+            load_and_append(os.path.join(ai_dir, "detections.csv"))
+            load_and_append(os.path.join(ai_dir, "predictions.general.csv"))
                 
             # Use index for nested detections.csv (Branched structure)
             index = Visualizer._build_dataset_index(ai_dir)
             for file_path in index['detections_csv']:
-                abs_path = os.path.abspath(file_path)
-                if abs_path not in loaded_files:
-                    try:
-                        dfs.append(PredictionAdapter.load_and_normalize(abs_path))
-                        loaded_files.add(abs_path)
-                    except Exception as e:
-                        print(f"Warning: Failed to load {file_path}: {e}")
+                load_and_append(file_path)
                 
         if dfs:
             return pd.concat(dfs, ignore_index=True)
         else:
             print(f"Warning: No supported prediction CSV found in {ai_dir} or {predictions_csv}")
-            return pd.DataFrame(columns=['image_name', 'class_name', 'confidence', 'is_mask'])
+            return pd.DataFrame(columns=['image_name', 'class_name', 'confidence', 'is_mask', 'mask_base'])
 
     @staticmethod
     @lru_cache(maxsize=5000)
-    def _find_mask_file(image_name: str, ai_dir: str) -> Optional[str]:
+    def _find_mask_file(image_name: str, ai_dir: str, mask_base: str = None) -> Optional[str]:
         """
         Finds the corresponding mask file for a given image.
-        Uses a cached index so we don't spam os.walk on the filesystem.
+        Uses the tracked mask_base to prevent filename collisions across different SAM3 classes.
         """
         base_name = os.path.splitext(os.path.basename(image_name))[0]
         expected_names = [f"{base_name}_mask.png", f"{base_name}-mask.jpg", f"{base_name}-mask.png"]
+        parent_dir = os.path.basename(os.path.dirname(image_name))
         
-        # Fast path: check if it's right in the ai_dir
+        # 1. Strict Path Check: Prioritize the directory where the predictions CSV was found
+        if mask_base:
+            for expected_mask_name in expected_names:
+                # Check expected branched structure: e.g., sam3-sidewalk/route01-frames/route01_0001_mask.png
+                direct_path_with_parent = os.path.join(mask_base, parent_dir, expected_mask_name)
+                if os.path.exists(direct_path_with_parent):
+                    return direct_path_with_parent
+                
+                # Check flat structure
+                direct_path = os.path.join(mask_base, expected_mask_name)
+                if os.path.exists(direct_path):
+                    return direct_path
+
+        # 2. Fast path: check if it's right in the ai_dir root
         for expected_mask_name in expected_names:
             direct_path = os.path.join(ai_dir, expected_mask_name)
             if os.path.exists(direct_path):
                 return direct_path
                 
-        # Index path
+        # 3. Index path (Fallback)
         index = Visualizer._build_dataset_index(ai_dir)
         for expected_mask_name in expected_names:
             matches = index['masks'].get(expected_mask_name, [])
             if matches:
+                # Try to disambiguate strictly using the mask_base first
+                if mask_base:
+                    for match in matches:
+                        if match.startswith(mask_base):
+                            return match
+
                 if len(matches) == 1:
                     return matches[0]
-                # If multiple, try to disambiguate using parent directory
-                parent_dir = os.path.basename(os.path.dirname(image_name))
+                
+                # If multiple and no mask_base matched, fall back to parent directory disambiguation
                 if parent_dir:
                     for match in matches:
                         if parent_dir in match:
@@ -130,8 +148,6 @@ class Visualizer:
         if not os.path.exists(img_path):
             return None
             
-        # Get the relative image name to match the CSV format (e.g., folder/image_0001.jpg)
-        # Note: Depending on how frames are extracted, you might just need the basename
         image_basename = os.path.basename(img_path)
         
         # Load the cached DataFrame
@@ -150,12 +166,14 @@ class Visualizer:
                 continue
                 
             class_name = str(row['class_name'])
+            mask_base = str(row.get('mask_base', ''))
             
             # Skip if the frontend didn't ask for this class
             if requested_classes is not None and class_name not in requested_classes:
                 continue
                 
-            mask_path = Visualizer._find_mask_file(str(row['image_name']), ai_dir)
+            # Pass the mask_base down to disambiguate the file search
+            mask_path = Visualizer._find_mask_file(str(row['image_name']), ai_dir, mask_base if mask_base else None)
             
             if mask_path:
                 try:
