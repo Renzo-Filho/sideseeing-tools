@@ -190,10 +190,8 @@ def get_instance_data(instance_name: str, request: Request):
                         box_classes.add(class_name)
 
                     if img_basename in bboxes:
-                        color_tuple = Visualizer._get_color_for_class(class_name)
-                        color_str = f"rgb({color_tuple[0]},{color_tuple[1]},{color_tuple[2]})"
-                        
                         if 'xmin' in df.columns and pd.notna(row.get('xmin')):
+                            color_tuple = Visualizer._get_color_for_class(class_name)
                             bboxes[img_basename].append({
                                 "class_name": class_name,
                                 "confidence": float(row.get('confidence', 1.0)),
@@ -201,16 +199,7 @@ def get_instance_data(instance_name: str, request: Request):
                                 "ymin": float(row['ymin']),
                                 "xmax": float(row['xmax']),
                                 "ymax": float(row['ymax']),
-                                "color": color_str,
-                                "is_image_level": False
-                            })
-                        elif not row.get('is_mask', False):
-                            # Image-level prediction (no coordinates)
-                            bboxes[img_basename].append({
-                                "class_name": class_name,
-                                "confidence": float(row.get('confidence', 1.0)),
-                                "color": color_str,
-                                "is_image_level": True
+                                "color": f"rgb({color_tuple[0]},{color_tuple[1]},{color_tuple[2]})"
                             })
         except Exception as e:
             print(f"Error compiling instance data: {e}")
