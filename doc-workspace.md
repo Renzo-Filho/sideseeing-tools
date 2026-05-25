@@ -6,8 +6,9 @@ The `SideSeeingWorkspace` module acts as a bridge between your raw SideSeeing da
 
 1. **Strict Dataviz Structure Generation**: Automatically generates the exact directory structure expected by the Dataviz Server (`data/`, `frames/`, `preds/`), saving you from manually organizing files.
 2. **Safe Data Linking (Symlinks)**: Instead of copying gigabytes of raw video and sensor data, the workspace uses symbolic links to reference the original files. This ensures your existing reporting scripts can seamlessly run on the generated workspace without any changes.
-3. **Granular Control**: Run the entire pipeline at once or break it down into specific steps (e.g., extracting frames today, running segmentation tomorrow).
-4. **Resumable Segmentations**: Segmenting large datasets takes time. If you stop the process halfway, running it again will automatically skip frames that have already been masked, picking up right where it left off.
+3. **Built-in Anonymization**: Protects PII by automatically detecting and blurring sensitive regions (faces, license plates) using either a fast YOLO model or a highly precise SAM3 model.
+4. **Granular Control**: Run the entire pipeline at once or break it down into specific steps (e.g., extracting frames today, running segmentation tomorrow).
+5. **Resumable Segmentations**: Segmenting large datasets takes time. If you stop the process halfway, running it again will automatically skip frames that have already been masked, picking up right where it left off.
 
 ## Output Structure
 
@@ -48,12 +49,13 @@ ds = SideSeeingDS('/path/to/raw/multisensor/dataset')
 # 2. Initialize the Workspace
 workspace = SideSeeingWorkspace('/path/to/output_workspace')
 
-# 3. Build the entire workspace
+# 3. Build the entire workspace (with automatic fast anonymization)
 workspace.build_workspace(
     dataset=ds, 
     prompts=["crosswalk", "curbramp", "pothole"], 
     extract_step=30,      # Extract 1 frame every 30 frames
-    use_symlinks=True     # Use safe linking for raw data
+    use_symlinks=True,    # Use safe linking for raw data
+    anonymize_method="yolo" # Blurs persons and cars immediately after extraction
 )
 ```
 
@@ -80,7 +82,16 @@ workspace.extract_frames(
     instances=my_routes
 )
 
-# Step 3: Run segmentations only for selected routes
+# Step 3: Anonymize the extracted frames to protect PII
+# "yolo" is fast and blurs whole persons/cars. "sam3" is slow but precisely masks faces/plates.
+workspace.anonymize_frames(
+    dataset=ds,
+    instances=my_routes,
+    method="yolo",
+    batch_size=8
+)
+
+# Step 4: Run segmentations only for selected routes
 # NOTE: Requires `pip install sideseeing-tools[vision]`
 workspace.generate_segmentation(
     dataset=ds, 

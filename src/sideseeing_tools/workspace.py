@@ -173,12 +173,65 @@ class SideSeeingWorkspace:
                         
                         csv_file.flush()
 
-    def build_workspace(self, dataset: SideSeeingDS, prompts: list, extract_step: int = 30, use_symlinks: bool = True):
+    def anonymize_frames(self, dataset: SideSeeingDS, instances: list = None, method: str = "yolo", batch_size: int = 8, blur_radius: int = 15):
+        """
+        Post-processing step that scans the frames directory, detects sensitive areas (faces/plates),
+        and overwrites the frames with blurred versions.
+        """
+        try:
+            from sideseeing_tools.anonymization import Anonymizer
+        except ImportError:
+            raise ImportError(
+                "Optional dependencies for vision are not installed. "
+                "Please install them using: pip install sideseeing-tools[vision]"
+            )
+
+        anonymizer = Anonymizer(method=method, blur_radius=blur_radius)
+        iterator = instances if instances else dataset.iterator
+
+        for instance in iterator:
+            instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
+            if not instance_frames_dir.exists():
+                print(f"Warning: Frames directory not found for {instance.name}. Skipping anonymization.")
+                continue
+
+            all_frames = sorted(instance_frames_dir.glob("*.jpg")) + sorted(instance_frames_dir.glob("*.png"))
+            if not all_frames:
+                continue
+                
+            print(f"Anonymizing {len(all_frames)} frames for {instance.name} using {method.upper()}...")
+            
+            for i in range(0, len(all_frames), batch_size):
+                batch_paths = all_frames[i:i+batch_size]
+                batch_images = []
+                valid_paths = []
+                
+                for path in batch_paths:
+                    try:
+                        batch_images.append(Image.open(path).convert("RGB"))
+                        valid_paths.append(path)
+                    except Exception as e:
+                        print(f"Error opening image {path}: {e}")
+                        
+                if not batch_images:
+                    continue
+                    
+                blurred_images = anonymizer.anonymize_batch(batch_images)
+                
+                for path, blurred_img in zip(valid_paths, blurred_images):
+                    # Overwrite original frame with blurred version
+                    blurred_img.save(path)
+
+    def build_workspace(self, dataset: SideSeeingDS, prompts: list, extract_step: int = 30, use_symlinks: bool = True, anonymize_method: str = None):
         """
         Master function to execute the entire pipeline on the whole dataset.
-        Sets up the directory, extracts frames, and generates segmentations.
+        Sets up the directory, extracts frames, generates segmentations, and optionally anonymizes frames.
         """
         self.setup_data_directory(dataset, use_symlinks)
         self.extract_frames(dataset, extract_step)
+        
+        if anonymize_method:
+            self.anonymize_frames(dataset, method=anonymize_method)
+            
         self.generate_segmentation(dataset, prompts)
         print("Workspace build complete.")
