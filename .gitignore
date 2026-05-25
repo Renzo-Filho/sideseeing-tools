@@ -11,5 +11,4 @@ src/tmp
 ignore
 venv
 repomix-**
-ss-tools-**
 requirements.txt
