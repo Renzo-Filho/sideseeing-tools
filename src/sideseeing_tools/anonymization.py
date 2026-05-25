@@ -51,6 +51,7 @@ class Anonymizer:
                 )
         elif self.method == "sam3":
             from sideseeing_tools.segmentation import Segmenter
+            print(f"[Anonymizer] Loading SAM3 Segmenter for heavy anonymization...")
             self._model = Segmenter(device=self.device)
 
     def _apply_blur_to_boxes(self, image: Image.Image, boxes: list) -> Image.Image:
@@ -113,6 +114,7 @@ class Anonymizer:
         if not images:
             return []
 
+        print(f"[Anonymizer] Initializing anonymization for a batch of {len(images)} images...")
         self._initialize_model()
         blurred_images = []
 
@@ -121,6 +123,7 @@ class Anonymizer:
                 # 0: person, 2: car, 3: motorcycle, 5: bus, 7: truck
                 yolo_classes = [0, 2, 3, 5, 7]
                 
+            print(f"[Anonymizer] Running YOLO inference for classes {yolo_classes}...")
             # YOLO batch inference
             results = self._model(images, classes=yolo_classes, verbose=False, device=self.device)
             
@@ -134,6 +137,7 @@ class Anonymizer:
             if sam3_prompts is None:
                 sam3_prompts = ["person", "face", "license plate", "car"]
                 
+            print(f"[Anonymizer] Running SAM3 inference with prompts: {sam3_prompts}...")
             # SAM3 batch inference (we must prompt for each image)
             # Since segment_batch takes 1 prompt per image, we need to iterate over prompts or images.
             # To find multiple prompts per image, we will iterate over prompts and accumulate masks.

@@ -58,6 +58,7 @@ class Segmenter:
         self._initialize_model()
         import torch
 
+        print(f"[Segmenter] Preparing inputs for a batch of {len(images)} images...")
         # Prepare inputs
         inputs = self._processor(
             images=images, 
@@ -66,10 +67,12 @@ class Segmenter:
         ).to(self.device)
 
         # Run inference
+        print(f"[Segmenter] Running SAM3 inference...")
         with torch.no_grad():
             outputs = self._model(**inputs)
 
         # Post-process outputs
+        print(f"[Segmenter] Post-processing masks and calculating bounding boxes...")
         results_list = self._processor.post_process_instance_segmentation(
             outputs, 
             threshold=threshold, 

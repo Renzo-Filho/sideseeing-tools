@@ -29,7 +29,7 @@ class SideSeeingWorkspace:
         or symlinking from the raw SideSeeingDS dataset. 
         This ensures raw sensor data remains intact for the report module.
         """
-        print(f"Setting up workspace data directory in {self.data_dir}...")
+        print(f"[Workspace] Setting up workspace data directory safely in {self.data_dir}...")
         
         # Link or copy dataset metadata.csv
         if dataset.metadata_path and os.path.exists(dataset.metadata_path):
@@ -49,7 +49,7 @@ class SideSeeingWorkspace:
                 else:
                     shutil.copytree(instance.path, dest_instance_dir)
 
-        print("Data directory setup complete.")
+        print(f"[Workspace] Data directory setup complete. Linked {dataset.size} routes.")
 
     def extract_frames(self, dataset: SideSeeingDS, extract_step: int, instances: list = None):
         """
@@ -66,7 +66,7 @@ class SideSeeingWorkspace:
             instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
             instance_frames_dir.mkdir(parents=True, exist_ok=True)
             
-            print(f"Extracting frames for route: {instance.name} (Step: {extract_step})...")
+            print(f"[Workspace] Extracting frames for route: {instance.name} (Step: {extract_step})...")
             # SideSeeingInstance.extract_frames(output_dir, step, prefix, left_zeros)
             instance.extract_frames(
                 output_dir=str(instance_frames_dir),
@@ -74,7 +74,7 @@ class SideSeeingWorkspace:
                 prefix=f"{instance.name}_"
             )
             
-        print("Frame extraction complete.")
+        print(f"[Workspace] Frame extraction complete for all requested instances.")
 
     def generate_segmentation(self, dataset: SideSeeingDS, prompts: list, instances: list = None, batch_size: int = 8):
         """
@@ -108,7 +108,7 @@ class SideSeeingWorkspace:
                 for instance in iterator:
                     instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
                     if not instance_frames_dir.exists():
-                        print(f"Warning: Frames directory not found for {instance.name}. Did you run extract_frames() first? Skipping...")
+                        print(f"[Workspace Warning] Frames directory not found for {instance.name}. Did you run extract_frames() first? Skipping...")
                         continue
                         
                     prompt_instance_frames_dir = prompt_dir / f"{instance.name}-frames"
@@ -127,7 +127,7 @@ class SideSeeingWorkspace:
                     if not frames_to_process:
                         continue
                         
-                    print(f"Segmenting {len(frames_to_process)} frames for {instance.name} with prompt '{prompt}'...")
+                    print(f"[Workspace] Found {len(frames_to_process)} un-segmented frames for {instance.name} with prompt '{prompt}'. Segmenting...")
                     
                     for i in range(0, len(frames_to_process), batch_size):
                         batch_paths = frames_to_process[i:i+batch_size]
@@ -139,12 +139,13 @@ class SideSeeingWorkspace:
                                 batch_images.append(Image.open(path).convert("RGB"))
                                 valid_paths.append(path)
                             except Exception as e:
-                                print(f"Error opening image {path}: {e}")
+                                print(f"[Workspace Error] Error opening image {path}: {e}")
                                 
                         if not batch_images:
                             continue
                             
                         # Run inference
+                        print(f"[Workspace] Submitting batch of {len(batch_images)} images to Segmenter...")
                         results = segmenter.segment_batch(batch_images, [prompt] * len(batch_images))
                         
                         # Save results
@@ -192,14 +193,14 @@ class SideSeeingWorkspace:
         for instance in iterator:
             instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
             if not instance_frames_dir.exists():
-                print(f"Warning: Frames directory not found for {instance.name}. Skipping anonymization.")
+                print(f"[Workspace Warning] Frames directory not found for {instance.name}. Skipping anonymization.")
                 continue
 
             all_frames = sorted(instance_frames_dir.glob("*.jpg")) + sorted(instance_frames_dir.glob("*.png"))
             if not all_frames:
                 continue
                 
-            print(f"Anonymizing {len(all_frames)} frames for {instance.name} using {method.upper()}...")
+            print(f"[Workspace] Scanning frames for {instance.name}. Found {len(all_frames)} total frames to anonymize using {method.upper()}...")
             
             for i in range(0, len(all_frames), batch_size):
                 batch_paths = all_frames[i:i+batch_size]
@@ -211,7 +212,7 @@ class SideSeeingWorkspace:
                         batch_images.append(Image.open(path).convert("RGB"))
                         valid_paths.append(path)
                     except Exception as e:
-                        print(f"Error opening image {path}: {e}")
+                        print(f"[Workspace Error] Error opening image {path} for anonymization: {e}")
                         
                 if not batch_images:
                     continue
@@ -234,4 +235,4 @@ class SideSeeingWorkspace:
             self.anonymize_frames(dataset, method=anonymize_method)
             
         self.generate_segmentation(dataset, prompts)
-        print("Workspace build complete.")
+        print(f"[Workspace] Build pipeline complete! Everything is ready in {self.output_dir}.")
