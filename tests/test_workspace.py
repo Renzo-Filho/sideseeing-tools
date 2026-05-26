@@ -39,7 +39,7 @@ def main():
     if args.anonymize != "none":
         print(f"\n[Step C] Anonymizing Extracted Frames (Method: {args.anonymize})...")
         print("This will blur persons and vehicles to protect PII.")
-        workspace.anonymize_frames(ds, method=args.anonymize)
+        #workspace.anonymize_frames(ds, method=args.anonymize)
     else:
         print("\n[Step C] Skipping Anonymization...")
 

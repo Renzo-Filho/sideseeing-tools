@@ -547,7 +547,7 @@ def get_dir_size(dir_path: str) -> float:
         raise ValueError(f"Path '{dir_path}' is not a directory.")
 
     total_size = 0
-    for dirpath, dirnames, filenames in os.walk(dir_path):
+    for dirpath, dirnames, filenames in os.walk(dir_path, followlinks=True):
         for f in filenames:
             fp = os.path.join(dirpath, f)
             if not os.path.islink(fp):

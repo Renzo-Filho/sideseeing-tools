@@ -43,7 +43,7 @@ class SideSeeingDS:
         self.instances = {}
         invalid_instances = []
 
-        for root, _, files in os.walk(self.data_dir):
+        for root, _, files in os.walk(self.data_dir, followlinks=True):
             for f in files:
                 if f not in constants.SUPPORTED_FILES:
                     continue
@@ -73,8 +73,9 @@ class SideSeeingDS:
 
         for instance in self.iterator:
             for n_axis in self.sensors.keys():
-                if hasattr(instance, n_axis):
-                    for name in getattr(instance, n_axis).keys():
+                sensor_data = getattr(instance, n_axis, None)
+                if sensor_data:
+                    for name in sensor_data.keys():
                         if name not in self.sensors[n_axis]:
                             self.sensors[n_axis][name] = set()
                         self.sensors[n_axis][name].add(instance.name)
@@ -365,7 +366,7 @@ class SideSeeingInstance:
             else:
                 output_file = os.path.join(output_dir, file_name)
 
-            sensors = getattr(self, naxes, {})
+            sensors = getattr(self, naxes, None) or {}
 
             with open(output_file, 'w') as fout:
                 fout.write(','.join(fields) + '\n')

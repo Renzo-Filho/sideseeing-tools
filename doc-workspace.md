@@ -104,3 +104,4 @@ workspace.generate_segmentation(
 ## Tips
 - **Disk Space**: Always try to leave `use_symlinks=True` (the default) to prevent cloning massive raw datasets. Windows users may need to run their IDE or terminal as Administrator to create symlinks.
 - **Hardware Limitations**: If you encounter an "Out of Memory" (OOM) error on your GPU during `generate_segmentation`, simply lower the `batch_size` (e.g., from `8` to `4` or `2`). The process will resume exactly where it crashed.
+- **Hugging Face Authentication**: The `facebook/sam3` model used by the Segmenter is a gated repository. Before running the segmentation or heavy anonymization for the first time, you must accept the terms at [huggingface.co/facebook/sam3](https://huggingface.co/facebook/sam3) and authenticate your terminal by running `huggingface-cli login` using your access token.

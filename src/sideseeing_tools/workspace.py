@@ -42,6 +42,9 @@ class SideSeeingWorkspace:
 
         # Link or copy route instances
         for instance in dataset.iterator:
+            if not instance.name:
+                print(f"[Workspace Warning] Skipping instance with empty name (likely a file in the root dir).")
+                continue
             dest_instance_dir = self.data_dir / instance.name
             if not dest_instance_dir.exists():
                 if use_symlinks:
@@ -63,6 +66,9 @@ class SideSeeingWorkspace:
         iterator = instances if instances else dataset.iterator
         
         for instance in iterator:
+            if not instance.name:
+                continue
+                
             instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
             instance_frames_dir.mkdir(parents=True, exist_ok=True)
             
@@ -106,6 +112,9 @@ class SideSeeingWorkspace:
                     writer.writerow(["image_name", "relative_path", "prompt", "num_detections", "scores", "boxes"])
                 
                 for instance in iterator:
+                    if not instance.name:
+                        continue
+                        
                     instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
                     if not instance_frames_dir.exists():
                         print(f"[Workspace Warning] Frames directory not found for {instance.name}. Did you run extract_frames() first? Skipping...")
@@ -191,6 +200,9 @@ class SideSeeingWorkspace:
         iterator = instances if instances else dataset.iterator
 
         for instance in iterator:
+            if not instance.name:
+                continue
+                
             instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
             if not instance_frames_dir.exists():
                 print(f"[Workspace Warning] Frames directory not found for {instance.name}. Skipping anonymization.")

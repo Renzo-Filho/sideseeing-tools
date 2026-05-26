@@ -183,7 +183,7 @@ class Report:
         for instance in ds.iterator:
             charts_list = []
             for axis, columns in sensors_axis.items():
-                sensor_data_dict = getattr(instance, axis, {})
+                sensor_data_dict = getattr(instance, axis, None) or {}
                 for sensor_name, df in sensor_data_dict.items():
                     if df is not None and not df.empty:
                         chart_id = f"chart_{instance.name}_{sensor_name.replace(' ', '_')}"
