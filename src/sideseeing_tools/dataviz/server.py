@@ -13,6 +13,19 @@ app.include_router(dataviz_router)
 # In-memory dictionary to track extraction progress
 extraction_jobs = {}
 
+@app.on_event("shutdown")
+def cleanup_cache():
+    import shutil
+    output_dir = getattr(app.state, "output_dir", None)
+    if output_dir:
+        cache_dir = os.path.join(output_dir, "cache")
+        if os.path.exists(cache_dir):
+            try:
+                shutil.rmtree(cache_dir)
+                print(f"Cleaned up temporary cache directory: {cache_dir}")
+            except Exception as e:
+                print(f"Failed to clean up cache directory: {e}")
+
 def background_extractor(video_path: str, output_dir: str, instance_name: str, fps: int = 1):
     """
     Runs in a background thread so it doesn't block the FastAPI event loop.

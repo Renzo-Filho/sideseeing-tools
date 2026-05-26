@@ -49,7 +49,7 @@ def get_thumbnail(instance_name: str, filename: str, request: Request):
     img_path = get_safe_path(frames_dir, target_path)
     
     # Setup thumb cache directory
-    thumbs_dir = os.path.join(output_dir, "thumbs")
+    thumbs_dir = os.path.join(output_dir, "cache", "thumbs")
     os.makedirs(thumbs_dir, exist_ok=True)
     
     # Create a cache hash based on the original file path
@@ -91,7 +91,7 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
         requested_classes = sorted([c.strip() for c in classes.split(",") if c.strip()])
     
     # Setup vis cache directory
-    cache_dir = os.path.join(output_dir, "cache_vis")
+    cache_dir = os.path.join(output_dir, "cache", "masks_vis")
     os.makedirs(cache_dir, exist_ok=True)
     
     # Cache based on the image AND the specific combination of classes requested
