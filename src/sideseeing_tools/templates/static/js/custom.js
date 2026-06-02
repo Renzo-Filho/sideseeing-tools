@@ -5,17 +5,30 @@ document.addEventListener('DOMContentLoaded', () => {
     let loadedWifiData = {};
     let loadedGeoData = {};
 
+    const analysisFiles = typeof ANALYSIS_FILES !== 'undefined' ? ANALYSIS_FILES : {};
+    const samplesData = typeof SAMPLES_DATA !== 'undefined' ? SAMPLES_DATA : [];
+
     initSummaryMap();
-    initSidewalkAssessmentMap(ANALYSIS_FILES);
-    renderTable(SAMPLES_DATA);
+    if (typeof initSidewalkAssessmentMap === 'function') {
+        initSidewalkAssessmentMap(analysisFiles);
+    }
+    renderTable(samplesData);
     showSection('summary');
     
-    initSensorSection(loadedSamplesData);
-    initWifiSection(activeMaps, loadedWifiData);
-    initGeoSection(activeMaps, loadedGeoData);
-    initializeSimpleSection('video');
-    initializeSimpleSection('cell');
-    initializeSimpleSection('anonym');
+    if (typeof initSensorSection === 'function') {
+        initSensorSection(loadedSamplesData);
+    }
+    if (typeof initWifiSection === 'function') {
+        initWifiSection(activeMaps, loadedWifiData);
+    }
+    if (typeof initGeoSection === 'function') {
+        initGeoSection(activeMaps, loadedGeoData);
+    }
+    if (typeof initializeSimpleSection === 'function') {
+        initializeSimpleSection('video');
+        initializeSimpleSection('cell');
+        initializeSimpleSection('anonym');
+    }
 
     // --- Sidebar and Menu Logic ---
     document.getElementById('sidebar-open-btn').addEventListener('click', toggleSidebar);
@@ -142,7 +155,8 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.appendChild(row);
         });
     
-        document.getElementById('resultCount').textContent = `Showing ${data.length} of ${SAMPLES_DATA.length} samples`;
+        const totalSamples = typeof SAMPLES_DATA !== 'undefined' ? SAMPLES_DATA.length : data.length;
+        document.getElementById('resultCount').textContent = `Showing ${data.length} of ${totalSamples} samples`;
     }
 
     function toggleSidebar() {
@@ -160,7 +174,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function filterTable() {
         const term = document.getElementById('searchInput').value.toLowerCase();
-        const filtered = SAMPLES_DATA.filter(sample => 
+        const allSamples = typeof SAMPLES_DATA !== 'undefined' ? SAMPLES_DATA : [];
+        const filtered = allSamples.filter(sample => 
             sample.name.toLowerCase().includes(term) || 
             sample.location.toLowerCase().includes(term)
         );
