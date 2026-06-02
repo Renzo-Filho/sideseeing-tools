@@ -424,37 +424,41 @@ class Report:
         start_image_name = first_row['start_image']
         end_image_name = first_row['end_image']
 
-        start_match = re.match(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3})_(\d+)_ms\.jpg', start_image_name)
-        end_match = re.match(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3})_(\d+)_ms\.jpg', end_image_name)
+        match_start = re.match(r'^(.*?)_(\d+)(?:_ms)?\.(?:jpg|png)$', start_image_name)
+        match_end = re.match(r'^(.*?)_(\d+)(?:_ms)?\.(?:jpg|png)$', end_image_name)
 
-        if not start_match or not end_match:
+        if not match_start or not match_end:
+            print(f"Warning: Could not parse frame names: {start_image_name}, {end_image_name}")
             return []
 
-        frame_ts, start_frame_num_str = start_match.groups()
-        _, end_frame_num_str = end_match.groups()
+        base_name, start_frame_num_str = match_start.groups()
+        _, end_frame_num_str = match_end.groups()
         
         start_frame_num = int(start_frame_num_str)
         end_frame_num = int(end_frame_num_str)
-
-        parts = frame_ts.split('-')
-        unnormalized_sample_name = f"{''.join(parts[:3])}-{''.join(parts[3:])}"
+        ext_start = start_image_name.split('.')[-1]
 
         for frame_num in range(start_frame_num, end_frame_num + 1):
-            frame_image_name = f"{frame_ts}_{frame_num:05d}_ms.jpg"
+            if '_ms' in start_image_name:
+                frame_image_name = f"{base_name}_{frame_num:05d}_ms.{ext_start}"
+            else:
+                frame_image_name = f"{base_name}_{frame_num:05d}.{ext_start}"
             
-            src_img_path = os.path.join(image_dir, unnormalized_sample_name, frame_image_name)
+            src_img_path = os.path.join(image_dir, f"{base_name}-frames", frame_image_name)
 
             if not os.path.exists(src_img_path):
-                print(f"Warning: Source image not found at {src_img_path}. Skipping frame.")
                 continue
 
-            unique_img_filename = f"{unnormalized_sample_name.replace('-', '')}_{frame_image_name}"
-            dest_img_path = os.path.join(output_frames_dir, unique_img_filename)
+            dest_dir = os.path.join(output_frames_dir, f"{base_name}-frames")
+            if not os.path.exists(dest_dir):
+                os.makedirs(dest_dir, exist_ok=True)
+            
+            dest_img_path = os.path.join(dest_dir, frame_image_name)
 
-            if not os.path.exists(dest_img_path):
+            if not os.path.exists(dest_img_path) and src_img_path != dest_img_path:
                 shutil.copy(src_img_path, dest_img_path)
 
-            frame_paths.append(f"frames/{unique_img_filename}")
+            frame_paths.append(f"frames/{base_name}-frames/{frame_image_name}")
             
         return sorted(list(set(frame_paths)))
 
@@ -484,11 +488,6 @@ class Report:
         
         print(f"Found {len(events_df)} events in CSV.")
 
-        timestamp_map = {
-            re.search(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3})', sample.name).group(1): sample.name
-            for sample in ds.iterator if re.search(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3})', sample.name)
-        }
-
         points_by_sample = {}
         paths_by_sample = {}
         gpkg_cache = {}
@@ -503,35 +502,40 @@ class Report:
                 
                 start_image = row['start_image']
                 
-                match = re.match(r'(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3})_(\d+)_ms\.jpg', start_image)
+                match = re.match(r'^(.*?)_(\d+)(?:_ms)?\.(?:jpg|png)$', start_image)
                 if not match:
                     print(f"Warning: Could not parse image filename '{start_image}' for event '{event_id}'. Skipping.")
                     continue
 
-                timestamp_name, _ = match.groups()
-                sample_name = timestamp_map.get(timestamp_name)
+                sample_name, _ = match.groups()
 
-                if not sample_name:
-                    print(f"Warning: No matching sample for timestamp '{timestamp_name}' in event '{event_id}'. Skipping.")
+                if sample_name not in [s.name for s in ds.iterator]:
+                    print(f"Warning: No matching sample for '{sample_name}' in event '{event_id}'. Skipping.")
                     continue
 
                 if sample_name not in points_by_sample:
                     points_by_sample[sample_name] = []
 
                 if sample_name not in gpkg_cache:
-                    gpkg_path = os.path.join(gpkg_dir, f"{timestamp_name}.gpkg")
+                    gpkg_path = os.path.join(gpkg_dir, f"{sample_name}.gpkg")
                     if os.path.exists(gpkg_path):
                         gdf = gpd.read_file(gpkg_path)
                         gpkg_cache[sample_name] = gdf
                         if not gdf.empty:
-                            paths_by_sample[sample_name] = [[geom.y, geom.x] for geom in gdf.geometry if geom]
+                            coords_list = []
+                            for geom in gdf.geometry:
+                                if geom:
+                                    if geom.geom_type == 'LineString':
+                                        coords_list.extend([[y, x] for x, y in geom.coords])
+                                    elif geom.geom_type == 'MultiLineString':
+                                        for line in geom.geoms:
+                                            coords_list.extend([[y, x] for x, y in line.coords])
+                            paths_by_sample[sample_name] = coords_list
                     else:
                         print(f"Warning: GPKG file not found for {sample_name}, skipping route path.")
                         gpkg_cache[sample_name] = None
 
                 frame_paths = self._get_all_frames_for_event(event_group, image_dir, output_frames_dir)
-                if not frame_paths:
-                    continue
 
                 point_info = {
                     'latitude': row['center_latitude'],

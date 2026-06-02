@@ -12,23 +12,30 @@ function initSidewalkAssessmentMap(assessmentData) {
     let cleanupFullscreen;
 
     let layerVisibilityState = {
-        'route': true,
-        'crosswalk': true,
-        'curbramp': false,
-        'obstacle': false,
-        'surfaceproblem': false
+        'route': true
     };
 
     const iconConfig = {
         'curbramp': {color: '#3498db', name: 'Curb Ramp'},
         'obstacle': {color: '#e74c3c', name: 'Obstacle'},
         'crosswalk': {color: '#2ecc71', name: 'Crosswalk'},
-        'surfaceproblem': {color: '#f1c40f', name: 'Surface Problem'},
-        'default': {color: '#95a5a6', name: 'Unknown'}
+        'surfaceproblem': {color: '#f1c40f', name: 'Surface Problem'}
     };
 
+    function getIconConfig(type) {
+        if (iconConfig[type]) return iconConfig[type];
+        let hash = 0;
+        for (let i = 0; i < type.length; i++) {
+            hash = type.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const color = '#' + (hash & 0x00FFFFFF).toString(16).toUpperCase().slice(-6).padStart(6, '0');
+        const name = type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+        iconConfig[type] = { color, name };
+        return iconConfig[type];
+    }
+
     function createMarkerIcon(pointType) {
-        const config = iconConfig[pointType] || iconConfig['default'];
+        const config = getIconConfig(pointType);
         const markerHtml = `<div style="background-color: ${config.color};" class="leaflet-custom-marker"></div>`;
         return L.divIcon({
             html: markerHtml,
@@ -38,7 +45,7 @@ function initSidewalkAssessmentMap(assessmentData) {
         });
     }
 
-    function addLegend() {
+    function addLegend(presentTypes) {
         const legend = L.control({position: 'bottomright'});
         legend.onAdd = function () {
             const div = L.DomUtil.create('div', 'info legend');
@@ -51,9 +58,8 @@ function initSidewalkAssessmentMap(assessmentData) {
                     <label for="legend-checkbox-route">GPS Route</label>
                 </div>`;
 
-            for (const type in iconConfig) {
-                if (type === 'default') continue;
-                const config = iconConfig[type];
+            presentTypes.forEach(type => {
+                const config = getIconConfig(type);
                 const checkboxId = `legend-checkbox-${type}`;
                 div.innerHTML +=
                     `<div class="legend-item">
@@ -61,7 +67,7 @@ function initSidewalkAssessmentMap(assessmentData) {
                         <i style="background:${config.color}"></i>
                         <label for="${checkboxId}">${config.name}</label>
                     </div>`;
-            }
+            });
             return div;
         };
         legend.addTo(map);
@@ -80,8 +86,7 @@ function initSidewalkAssessmentMap(assessmentData) {
             });
         }
 
-        for (const type in iconConfig) {
-            if (type === 'default') continue;
+        presentTypes.forEach(type => {
             const checkbox = document.getElementById(`legend-checkbox-${type}`);
             if (checkbox) {
                 checkbox.addEventListener('change', (e) => {
@@ -92,7 +97,7 @@ function initSidewalkAssessmentMap(assessmentData) {
                     }
                 });
             }
-        }
+        });
     }
 
     function drawPoints(points) {
@@ -103,6 +108,8 @@ function initSidewalkAssessmentMap(assessmentData) {
 
         points.forEach(point => {
             const type = point.type;
+            if (type === 'sidewalk') return;
+            
             const icon = createMarkerIcon(type);
             const marker = L.marker([point.latitude, point.longitude], {icon: icon});
 
@@ -113,7 +120,7 @@ function initSidewalkAssessmentMap(assessmentData) {
 
             const popupContent = `
                 <div class="flex justify-between items-center">
-                    <div class="font-semibold text-gray-700 capitalize">${iconConfig[type] ? iconConfig[type].name : 'Unknown'}</div>
+                    <div class="font-semibold text-gray-700 capitalize">${getIconConfig(type).name}</div>
                     <a href="${initialFrame}" target="_blank" title="Open image in new tab" class="text-gray-400 hover:text-blue-500 external-link">
                         <i data-lucide="external-link" class="w-4 h-4"></i>
                     </a>
@@ -207,7 +214,7 @@ function initSidewalkAssessmentMap(assessmentData) {
         return null;
     }
 
-    function setupMap(center, zoom) {
+    function setupMap(center, zoom, presentTypes) {
         if (map) {
             map.remove();
             delete window.activeMaps[mapElement.id];
@@ -223,9 +230,10 @@ function initSidewalkAssessmentMap(assessmentData) {
         }).addTo(map);
 
         layerGroups = {'route': L.layerGroup()};
-        Object.keys(iconConfig).forEach(type => {
-            if (type !== 'default') {
-                layerGroups[type] = L.layerGroup();
+        presentTypes.forEach(type => {
+            layerGroups[type] = L.layerGroup();
+            if (layerVisibilityState[type] === undefined) {
+                layerVisibilityState[type] = true;
             }
         });
 
@@ -235,14 +243,14 @@ function initSidewalkAssessmentMap(assessmentData) {
             }
         }
 
-        addLegend();
+        addLegend(presentTypes);
         cleanupFullscreen = addFullscreenControl(map, 'sidewalk-assessment-map-wrapper');
     }
 
     function loadAllSamples() {
         const allPoints = [];
         const allPaths = [];
-        const dataPromises = Object.values(assessmentData).map(path => fetch(path).then(res => res.json()));
+        const dataPromises = Object.values(assessmentData).map(path => fetch(`${path}?v=${Date.now()}`).then(res => res.json()));
 
         Promise.all(dataPromises).then(results => {
             results.forEach(data => {
@@ -250,8 +258,13 @@ function initSidewalkAssessmentMap(assessmentData) {
                 if (data.path && data.path.length > 0) allPaths.push(data.path);
             });
 
+            const presentTypes = new Set();
+            allPoints.forEach(p => {
+                if (p.type && p.type !== 'sidewalk') presentTypes.add(p.type);
+            });
+
             const center = results.length > 0 && results[0].center ? results[0].center : [0, 0];
-            setupMap(center, 13);
+            setupMap(center, 13, presentTypes);
 
             const pointsBounds = drawPoints(allPoints);
             const combinedBounds = L.latLngBounds();
@@ -275,12 +288,18 @@ function initSidewalkAssessmentMap(assessmentData) {
         const dataPath = assessmentData[sampleName];
         if (!dataPath) return;
 
-        fetch(dataPath)
+        fetch(`${dataPath}?v=${Date.now()}`)
             .then(response => response.json())
             .then(data => {
-                setupMap(data.center || [0, 0], 16);
+                const points = data.points || [];
+                const presentTypes = new Set();
+                points.forEach(p => {
+                    if (p.type && p.type !== 'sidewalk') presentTypes.add(p.type);
+                });
 
-                const pointsBounds = drawPoints(data.points || []);
+                setupMap(data.center || [0, 0], 16, presentTypes);
+
+                const pointsBounds = drawPoints(points);
                 const routeBounds = drawRoute(data.path || []);
 
                 const combinedBounds = L.latLngBounds();

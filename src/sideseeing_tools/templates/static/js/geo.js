@@ -35,7 +35,7 @@ function initGeoSection(activeMaps, loadedGeoData) {
         }
         if (geoPlaceholder) geoPlaceholder.style.display = 'none';
 
-        fetch(jsonPath)
+        fetch(`${jsonPath}?v=${Date.now()}`)
             .then(response => {
                 if (!response.ok) throw new Error(`Failed to load ${jsonPath}`);
                 return response.json();

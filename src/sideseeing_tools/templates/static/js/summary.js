@@ -23,7 +23,7 @@ function initSummaryMap() {
     }).addTo(overviewMap);
 
     const allPaths = [];
-    const dataPromises = Object.values(routeDataSource).map(path => fetch(path).then(res => res.json()));
+    const dataPromises = Object.values(routeDataSource).map(path => fetch(`${path}?v=${Date.now()}`).then(res => res.json()));
 
     Promise.all(dataPromises).then(results => {
         results.forEach(data => {

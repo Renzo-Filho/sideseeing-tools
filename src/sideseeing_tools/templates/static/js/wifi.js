@@ -31,7 +31,7 @@ function initWifiSection(activeMaps, loadedWifiData) {
         wifiSpinner.classList.add('flex');
         wifiPlaceholder.style.display = 'none';
 
-        fetch(jsonPath)
+        fetch(`${jsonPath}?v=${Date.now()}`)
             .then(res => res.json())
             .then(wifiPayload => {
                 loadedWifiData[jsonPath] = { 
