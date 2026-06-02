@@ -16,12 +16,16 @@ class SideSeeingWorkspace:
         self.data_dir = self.output_dir / "data"
         self.frames_dir = self.output_dir / "frames"
         self.preds_dir = self.output_dir / "preds"
+        self.geomatching_dir = self.output_dir / "geomatching"
+        self.routes_gpkg_dir = self.geomatching_dir / "routes_gpkg"
 
         # Create base directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.frames_dir.mkdir(parents=True, exist_ok=True)
         self.preds_dir.mkdir(parents=True, exist_ok=True)
+        self.geomatching_dir.mkdir(parents=True, exist_ok=True)
+        self.routes_gpkg_dir.mkdir(parents=True, exist_ok=True)
 
     def setup_data_directory(self, dataset: SideSeeingDS, use_symlinks: bool = True):
         """
@@ -70,6 +74,11 @@ class SideSeeingWorkspace:
                 continue
                 
             instance_frames_dir = self.frames_dir / f"{instance.name}-frames"
+            
+            if instance_frames_dir.exists() and any(instance_frames_dir.iterdir()):
+                print(f"[Workspace] Frames for {instance.name} already exist. Skipping extraction...")
+                continue
+                
             instance_frames_dir.mkdir(parents=True, exist_ok=True)
             
             print(f"[Workspace] Extracting frames for route: {instance.name} (Step: {extract_step})...")
@@ -97,7 +106,7 @@ class SideSeeingWorkspace:
             )
 
         segmenter = Segmenter()
-        iterator = instances if instances else dataset.iterator
+        iterator = instances if instances else list(dataset.iterator)
         
         for prompt in prompts:
             prompt_dir = self.preds_dir / f"sam3-{prompt}"
@@ -235,6 +244,178 @@ class SideSeeingWorkspace:
                     # Overwrite original frame with blurred version
                     blurred_img.save(path)
 
+    def generate_map_matched_routes(self, dataset: SideSeeingDS, instances: list = None):
+        """
+        Generates Map-Matched routes for the dataset using the OSRM API.
+        """
+        try:
+            from sideseeing_tools.mapping import MapMatcher
+        except ImportError:
+            raise ImportError("mapping module not found.")
+            
+        print(f"[Workspace] Generating map-matched routes in {self.routes_gpkg_dir}...")
+        matcher = MapMatcher()
+        iterator = instances if instances else dataset.iterator
+        
+        for instance in iterator:
+            if not instance.name:
+                continue
+            matcher.match_trace(instance, output_dir=str(self.routes_gpkg_dir))
+
+    def _create_event_dict(self, event_df, event_id, instance_name):
+        from sideseeing_tools import utils
+        
+        if event_df.empty:
+            return None
+            
+        start_row = event_df.iloc[0]
+        end_row = event_df.iloc[-1]
+        
+        lat_mean = event_df['latitude'].mean()
+        lon_mean = event_df['longitude'].mean()
+        
+        # Haversine distance
+        length_meters = utils.calculate_haversine_distance(
+            start_row['latitude'], start_row['longitude'],
+            end_row['latitude'], end_row['longitude']
+        ) * 1000.0 # utils returns km
+        
+        return {
+            'event_id': f"EVT-{event_id:05d}",
+            'start_image': start_row['image_name'],
+            'end_image': end_row['image_name'],
+            'center_latitude': lat_mean,
+            'center_longitude': lon_mean,
+            'feature': start_row['prompt'],
+            'length_meters': length_meters,
+            'instance_name': instance_name
+        }
+
+    def generate_sidewalk_assessment_events(self, dataset: SideSeeingDS):
+        """
+        Aggregates SAM3 detections into spatial map events based on continuous video frames,
+        syncing timestamps from frames to the raw GPS data.
+        """
+        import pandas as pd
+        import re
+        from datetime import timedelta
+        
+        print("[Workspace] Generating sidewalk assessment events...")
+        map_events = []
+        event_id_counter = 1
+        
+        for prompt_dir in self.preds_dir.glob("sam3-*"):
+            detections_csv = prompt_dir / "detections.csv"
+            if not detections_csv.exists() or os.path.getsize(detections_csv) == 0:
+                continue
+                
+            print(f"[Workspace] Processing detections from {prompt_dir.name}")
+            df_det = pd.read_csv(detections_csv)
+            
+            df_det['instance_name'] = df_det['relative_path'].apply(lambda x: x.split('-frames')[0] if isinstance(x, str) else None)
+            
+            for instance_name, group in df_det.groupby('instance_name'):
+                instance = dataset.instances.get(instance_name)
+                if not instance:
+                    print(f"[Workspace Warning] Instance {instance_name} not found in dataset. Skipping.")
+                    continue
+                    
+                df_gps = instance.geolocation_points
+                if df_gps is None or df_gps.empty:
+                    print(f"[Workspace Warning] No GPS data for {instance_name}. Skipping event generation.")
+                    continue
+                    
+                df_gps = df_gps.copy()
+                df_gps['Datetime UTC'] = pd.to_datetime(df_gps['Datetime UTC']).dt.tz_localize(None)
+                df_gps = df_gps.sort_values('Datetime UTC')
+                
+                media_start_time = instance.media_start_time
+                video_fps = float(instance.metadata.get('video_fps', 30.0))
+                
+                frame_data = []
+                for _, row in group.iterrows():
+                    image_name = row['image_name']
+                    match = re.search(r'_(\d+)(?:_ms)?\.(?:jpg|png)$', image_name)
+                    if not match:
+                        continue
+                    
+                    frame_idx = int(match.group(1))
+                    frame_time = media_start_time + timedelta(seconds=(frame_idx / video_fps))
+                    
+                    num_detections = row.get('num_detections', 0)
+                    if num_detections > 0:
+                        frame_data.append({
+                            'image_name': image_name,
+                            'frame_idx': frame_idx,
+                            'frame_time': frame_time,
+                            'prompt': row['prompt']
+                        })
+                
+                if not frame_data:
+                    continue
+                    
+                df_frames = pd.DataFrame(frame_data)
+                df_frames = df_frames.sort_values('frame_time')
+                
+                df_merged = pd.merge_asof(
+                    df_frames,
+                    df_gps[['Datetime UTC', 'latitude', 'longitude']],
+                    left_on='frame_time',
+                    right_on='Datetime UTC',
+                    direction='nearest',
+                    tolerance=pd.Timedelta(seconds=5)
+                )
+                
+                df_merged = df_merged.dropna(subset=['latitude', 'longitude'])
+                if df_merged.empty:
+                    continue
+                    
+                df_merged = df_merged.sort_values('frame_idx').reset_index(drop=True)
+                
+                if len(df_merged) > 1:
+                    gaps = df_merged['frame_idx'].diff().dropna()
+                    if len(gaps) > 0:
+                        common_gap = gaps.value_counts().idxmax()
+                    else:
+                        common_gap = 30
+                else:
+                    common_gap = 30
+                    
+                max_gap = common_gap * 3 
+                
+                current_event = []
+                for idx, row in df_merged.iterrows():
+                    if not current_event:
+                        current_event.append(row)
+                        continue
+                        
+                    prev_row = current_event[-1]
+                    if (row['frame_idx'] - prev_row['frame_idx']) <= max_gap and row['prompt'] == prev_row['prompt']:
+                        current_event.append(row)
+                    else:
+                        event_df = pd.DataFrame(current_event)
+                        event_dict = self._create_event_dict(event_df, event_id_counter, instance_name)
+                        if event_dict:
+                            map_events.append(event_dict)
+                            event_id_counter += 1
+                        
+                        current_event = [row]
+                
+                if current_event:
+                    event_df = pd.DataFrame(current_event)
+                    event_dict = self._create_event_dict(event_df, event_id_counter, instance_name)
+                    if event_dict:
+                        map_events.append(event_dict)
+                        event_id_counter += 1
+                        
+        if map_events:
+            df_out = pd.DataFrame(map_events)
+            out_path = self.geomatching_dir / "map_events.csv"
+            df_out.to_csv(out_path, index=False)
+            print(f"[Workspace] Generated {len(map_events)} sidewalk assessment events in {out_path}")
+        else:
+            print("[Workspace] No events generated.")
+
     def build_workspace(self, dataset: SideSeeingDS, prompts: list, extract_step: int = 30, use_symlinks: bool = True, anonymize_method: str = None):
         """
         Master function to execute the entire pipeline on the whole dataset.
@@ -247,4 +428,8 @@ class SideSeeingWorkspace:
             self.anonymize_frames(dataset, method=anonymize_method)
             
         self.generate_segmentation(dataset, prompts)
+        
+        self.generate_map_matched_routes(dataset)
+        self.generate_sidewalk_assessment_events(dataset)
+        
         print(f"[Workspace] Build pipeline complete! Everything is ready in {self.output_dir}.")

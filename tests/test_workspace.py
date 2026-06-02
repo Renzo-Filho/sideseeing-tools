@@ -8,7 +8,7 @@ def main():
     parser.add_argument("--output", "-o", type=str, required=True, help="Path where the processed workspace will be created.")
     parser.add_argument("--step", "-s", type=int, default=30, help="Frame extraction step rate (e.g., 30 means 1 frame every 30 frames).")
     parser.add_argument("--prompts", "-p", type=str, nargs="+", default=["sidewalk", "pothole", "curbramp"], help="Prompts for SAM3 segmentation.")
-    parser.add_argument("--anonymize", "-a", type=str, choices=["yolo", "sam3", "none"], default="yolo", help="Anonymization method.")
+    parser.add_argument("--anonymize", "-a", type=str, choices=["yolo", "sam3", "none"], default="none", help="Anonymization method.")
     
     args = parser.parse_args()
 
@@ -45,6 +45,12 @@ def main():
 
     print(f"\n[Step D] Generating Segmentations for: {args.prompts}...")
     workspace.generate_segmentation(ds, prompts=args.prompts)
+
+    print("\n[Step E] Generating Map-Matched Routes...")
+    workspace.generate_map_matched_routes(ds)
+
+    print("\n[Step F] Generating Sidewalk Assessment Events...")
+    workspace.generate_sidewalk_assessment_events(ds)
 
     print("\n" + "="*50)
     print("WORKSPACE BUILD COMPLETE!")

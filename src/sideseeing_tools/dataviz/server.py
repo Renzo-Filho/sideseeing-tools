@@ -107,11 +107,23 @@ def start_server(input_dir: str, output_dir: str = None, port: int = 5000, host:
     static_dir = os.path.join(output_dir, "static")
     data_dir = os.path.join(output_dir, "data")
 
+    # Safely get geomatching paths
+    geomatching_dir = os.path.join(output_dir, "geomatching")
+    events_csv_path = os.path.join(geomatching_dir, "map_events.csv")
+    gpkg_dir = os.path.join(geomatching_dir, "routes_gpkg")
+
     # Check if the report exists. If not, generate it.
     if not os.path.exists(index_path) or not os.path.exists(static_dir):
         print(f"Report not found at {output_dir}. Generating base report...")
         r = Report()
-        r.generate_report(input_dir=input_dir, output_dir=output_dir, metadata_csv=metadata_csv)
+        r.generate_report(
+            input_dir=input_dir, 
+            output_dir=output_dir, 
+            metadata_csv=metadata_csv,
+            events_csv_path=events_csv_path if os.path.exists(events_csv_path) else None,
+            gpkg_dir=gpkg_dir if os.path.exists(gpkg_dir) else None,
+            image_dir=frames_dir if os.path.exists(frames_dir) else None
+        )
         print("Base report generated successfully.")
     else:
         print(f"Existing report found at {output_dir}. Booting server...")
@@ -138,6 +150,12 @@ def start_server(input_dir: str, output_dir: str = None, port: int = 5000, host:
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
     if os.path.exists(data_dir):
         app.mount("/data", StaticFiles(directory=data_dir), name="data")
+        
+    frames_export_dir = os.path.join(output_dir, "frames")
+    if os.path.exists(frames_export_dir):
+        app.mount("/frames", StaticFiles(directory=frames_export_dir), name="frames")
+    elif os.path.exists(frames_dir):
+        app.mount("/frames", StaticFiles(directory=frames_dir), name="frames")
 
     print(f"Starting SideSeeing server at http://{host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
