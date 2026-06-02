@@ -133,7 +133,10 @@ class SideSeeingFile:
 
     def gen_instance_name(self, file_path, data_dir):
         els = f'{os.path.dirname(file_path)}'.replace(data_dir, '').split(os.path.sep)
-        return '_'.join(els[1:])
+        name = '_'.join(els[1:])
+        if not name:
+            name = os.path.basename(os.path.abspath(data_dir))
+        return name
 
     def discover_file_type(self):
         if self.file_name.endswith('metadata.json'):

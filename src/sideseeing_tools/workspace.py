@@ -104,7 +104,7 @@ class SideSeeingWorkspace:
             prompt_dir.mkdir(parents=True, exist_ok=True)
             
             csv_path = prompt_dir / "detections.csv"
-            file_exists = csv_path.exists()
+            file_exists = csv_path.exists() and os.path.getsize(csv_path) > 0
             
             with open(csv_path, mode='a', newline='', encoding='utf-8') as csv_file:
                 writer = csv.writer(csv_file)
