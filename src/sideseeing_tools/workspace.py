@@ -4,6 +4,9 @@ import shutil
 from pathlib import Path
 from PIL import Image
 from sideseeing_tools.sideseeing import SideSeeingDS
+import geopandas as gpd
+from shapely.geometry import Point
+from shapely.ops import nearest_points
 
 class SideSeeingWorkspace:
     """
@@ -264,9 +267,6 @@ class SideSeeingWorkspace:
 
     def _create_event_dict(self, event_df, event_id, instance_name):
         from sideseeing_tools import utils
-        import geopandas as gpd
-        from shapely.geometry import Point
-        from shapely.ops import nearest_points
         
         if event_df.empty:
             return None
@@ -274,20 +274,19 @@ class SideSeeingWorkspace:
         start_row = event_df.iloc[0]
         end_row = event_df.iloc[-1]
         
-        lat_mean = event_df['latitude'].mean()
-        lon_mean = event_df['longitude'].mean()
+        raw_lat = event_df['latitude'].mean()
+        raw_lon = event_df['longitude'].mean()
         
-        center_latitude = lat_mean
-        center_longitude = lon_mean
+        center_latitude = raw_lat
+        center_longitude = raw_lon
         
         gpkg_path = self.routes_gpkg_dir / f"{instance_name}.gpkg"
         if gpkg_path.exists():
             try:
                 gdf = gpd.read_file(gpkg_path)
                 if not gdf.empty and 'geometry' in gdf.columns:
-                    route_line = gdf.geometry.unary_union
-                    raw_point = Point(lon_mean, lat_mean)
-                    snapped_point, _ = nearest_points(route_line, raw_point)
+                    line_geom = gdf.geometry.unary_union
+                    snapped_point = nearest_points(line_geom, Point(raw_lon, raw_lat))[0]
                     center_latitude = snapped_point.y
                     center_longitude = snapped_point.x
             except Exception as e:
@@ -350,6 +349,7 @@ class SideSeeingWorkspace:
                 
                 media_start_time = instance.media_start_time
                 video_fps = float(instance.metadata.get('video_fps', 30.0))
+                MAX_FRAMES_PER_EVENT = int(video_fps * 1.5)
                 
                 frame_data = []
                 for _, row in group.iterrows():
@@ -409,7 +409,7 @@ class SideSeeingWorkspace:
                         continue
                         
                     prev_row = current_event[-1]
-                    if (row['frame_idx'] - prev_row['frame_idx']) <= max_gap and row['prompt'] == prev_row['prompt']:
+                    if (row['frame_idx'] - prev_row['frame_idx']) <= max_gap and row['prompt'] == prev_row['prompt'] and len(current_event) < MAX_FRAMES_PER_EVENT:
                         current_event.append(row)
                     else:
                         event_df = pd.DataFrame(current_event)
