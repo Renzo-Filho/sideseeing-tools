@@ -264,6 +264,9 @@ class SideSeeingWorkspace:
 
     def _create_event_dict(self, event_df, event_id, instance_name):
         from sideseeing_tools import utils
+        import geopandas as gpd
+        from shapely.geometry import Point
+        from shapely.ops import nearest_points
         
         if event_df.empty:
             return None
@@ -273,6 +276,22 @@ class SideSeeingWorkspace:
         
         lat_mean = event_df['latitude'].mean()
         lon_mean = event_df['longitude'].mean()
+        
+        center_latitude = lat_mean
+        center_longitude = lon_mean
+        
+        gpkg_path = self.routes_gpkg_dir / f"{instance_name}.gpkg"
+        if gpkg_path.exists():
+            try:
+                gdf = gpd.read_file(gpkg_path)
+                if not gdf.empty and 'geometry' in gdf.columns:
+                    route_line = gdf.geometry.unary_union
+                    raw_point = Point(lon_mean, lat_mean)
+                    snapped_point, _ = nearest_points(route_line, raw_point)
+                    center_latitude = snapped_point.y
+                    center_longitude = snapped_point.x
+            except Exception as e:
+                print(f"[Workspace Warning] Error snapping to route for {instance_name}: {e}")
         
         # Haversine distance
         length_meters = utils.calculate_haversine_distance(
@@ -284,8 +303,8 @@ class SideSeeingWorkspace:
             'event_id': f"EVT-{event_id:05d}",
             'start_image': start_row['image_name'],
             'end_image': end_row['image_name'],
-            'center_latitude': lat_mean,
-            'center_longitude': lon_mean,
+            'center_latitude': center_latitude,
+            'center_longitude': center_longitude,
             'feature': start_row['prompt'],
             'length_meters': length_meters,
             'instance_name': instance_name
@@ -381,7 +400,7 @@ class SideSeeingWorkspace:
                 else:
                     common_gap = 30
                     
-                max_gap = common_gap * 3 
+                max_gap = int(common_gap * 1.5)
                 
                 current_event = []
                 for idx, row in df_merged.iterrows():
