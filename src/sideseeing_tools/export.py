@@ -417,7 +417,7 @@ class Report:
 
         return instance_json_map if instance_json_map else None
 
-    def _get_all_frames_for_event(self, event_group: pd.DataFrame, image_dir: str, output_frames_dir: str) -> List[str]:
+    def _get_all_frames_for_event(self, event_group: pd.DataFrame, image_dir: str, output_frames_dir: str, instance_name: str = None) -> List[str]:
         frame_paths = []
         
         first_row = event_group.iloc[0]
@@ -434,6 +434,8 @@ class Report:
         base_name, start_frame_num_str = match_start.groups()
         _, end_frame_num_str = match_end.groups()
         
+        folder_name = instance_name if instance_name else base_name
+        
         start_frame_num = int(start_frame_num_str)
         end_frame_num = int(end_frame_num_str)
         ext_start = start_image_name.split('.')[-1]
@@ -444,12 +446,12 @@ class Report:
             else:
                 frame_image_name = f"{base_name}_{frame_num:05d}.{ext_start}"
             
-            src_img_path = os.path.join(image_dir, f"{base_name}-frames", frame_image_name)
+            src_img_path = os.path.join(image_dir, f"{folder_name}-frames", frame_image_name)
 
             if not os.path.exists(src_img_path):
                 continue
 
-            dest_dir = os.path.join(output_frames_dir, f"{base_name}-frames")
+            dest_dir = os.path.join(output_frames_dir, f"{folder_name}-frames")
             if not os.path.exists(dest_dir):
                 os.makedirs(dest_dir, exist_ok=True)
             
@@ -458,7 +460,7 @@ class Report:
             if not os.path.exists(dest_img_path) and src_img_path != dest_img_path:
                 shutil.copy(src_img_path, dest_img_path)
 
-            frame_paths.append(f"frames/{base_name}-frames/{frame_image_name}")
+            frame_paths.append(f"frames/{folder_name}-frames/{frame_image_name}")
             
         return sorted(list(set(frame_paths)))
 
@@ -509,9 +511,16 @@ class Report:
 
                 sample_name, _ = match.groups()
 
+                # --- HYPHEN FIX ---
+                clean_sample_map = {s.name.replace("-", ""): s.name for s in ds.iterator}
+                clean_extracted_name = sample_name.replace("-", "")
+                
                 if sample_name not in [s.name for s in ds.iterator]:
-                    print(f"Warning: No matching sample for '{sample_name}' in event '{event_id}'. Skipping.")
-                    continue
+                    if clean_extracted_name in clean_sample_map:
+                        sample_name = clean_sample_map[clean_extracted_name] # Use the real folder name
+                    else:
+                        print(f"Warning: No matching sample for '{sample_name}' in event '{event_id}'. Skipping.")
+                        continue
 
                 if sample_name not in points_by_sample:
                     points_by_sample[sample_name] = []
@@ -535,7 +544,7 @@ class Report:
                         print(f"Warning: GPKG file not found for {sample_name}, skipping route path.")
                         gpkg_cache[sample_name] = None
 
-                frame_paths = self._get_all_frames_for_event(event_group, image_dir, output_frames_dir)
+                frame_paths = self._get_all_frames_for_event(event_group, image_dir, output_frames_dir, instance_name=sample_name)
 
                 point_info = {
                     'latitude': row['center_latitude'],
