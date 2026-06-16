@@ -344,6 +344,10 @@ class SideSeeingWorkspace:
                     continue
                     
                 df_gps = df_gps.copy()
+                if 'accuracy' in df_gps.columns:
+                    df_gps['accuracy'] = pd.to_numeric(df_gps['accuracy'], errors='coerce')
+                    df_gps = df_gps[df_gps['accuracy'] <= 15.0]
+                    
                 df_gps['Datetime UTC'] = pd.to_datetime(df_gps['Datetime UTC']).dt.tz_localize(None)
                 df_gps = df_gps.sort_values('Datetime UTC')
                 

@@ -4,6 +4,7 @@ import geopandas as gpd
 from shapely.geometry import LineString, MultiLineString
 from shapely.ops import linemerge
 from pathlib import Path
+import pandas as pd
 
 class MapMatcher:
     def __init__(self, endpoint="http://router.project-osrm.org/match/v1/foot"):
@@ -32,6 +33,10 @@ class MapMatcher:
         if df_gps is None or df_gps.empty:
             print(f"[MapMatcher] No GPS data for {instance.name}, skipping.")
             return
+
+        if 'accuracy' in df_gps.columns:
+            df_gps['accuracy'] = pd.to_numeric(df_gps['accuracy'], errors='coerce')
+            df_gps = df_gps[df_gps['accuracy'] <= 15.0]
 
         df_gps = df_gps.sort_values(by='Datetime UTC').dropna(subset=['latitude', 'longitude'])
         coords = list(zip(df_gps['longitude'], df_gps['latitude']))
