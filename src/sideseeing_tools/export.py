@@ -511,9 +511,9 @@ class Report:
 
                 sample_name, _ = match.groups()
 
-                # --- HYPHEN FIX ---
-                clean_sample_map = {s.name.replace("-", ""): s.name for s in ds.iterator}
-                clean_extracted_name = sample_name.replace("-", "")
+                # --- HYPHEN & PREFIX FIX ---
+                clean_sample_map = {s.name.replace("-", "").replace("data_", ""): s.name for s in ds.iterator}
+                clean_extracted_name = sample_name.replace("-", "").replace("data_", "")
                 
                 if sample_name not in [s.name for s in ds.iterator]:
                     if clean_extracted_name in clean_sample_map:
@@ -527,6 +527,11 @@ class Report:
 
                 if sample_name not in gpkg_cache:
                     gpkg_path = os.path.join(gpkg_dir, f"{sample_name}.gpkg")
+                    
+                    # Fallback if the user removed the 'data_' prefix from the file name manually
+                    if not os.path.exists(gpkg_path) and sample_name.startswith("data_"):
+                        gpkg_path = os.path.join(gpkg_dir, f"{sample_name[5:]}.gpkg")
+                        
                     if os.path.exists(gpkg_path):
                         gdf = gpd.read_file(gpkg_path)
                         gpkg_cache[sample_name] = gdf
@@ -539,6 +544,8 @@ class Report:
                                     elif geom.geom_type == 'MultiLineString':
                                         for line in geom.geoms:
                                             coords_list.extend([[y, x] for x, y in line.coords])
+                                    elif geom.geom_type == 'Point':
+                                        coords_list.append([geom.y, geom.x])
                             paths_by_sample[sample_name] = coords_list
                     else:
                         print(f"Warning: GPKG file not found for {sample_name}, skipping route path.")

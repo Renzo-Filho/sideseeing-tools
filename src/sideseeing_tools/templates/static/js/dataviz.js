@@ -36,6 +36,7 @@ async function loadInstanceData(instanceName) {
         currentDatavizState.bboxes = data.bboxes; 
         currentDatavizState.box_classes = data.box_classes; 
         currentDatavizState.mask_classes = data.mask_classes; 
+        currentDatavizState.class_colors = data.class_colors || {};
         
         // Turn everything on by default
         currentDatavizState.activeBoxClasses = new Set(data.box_classes);
@@ -237,8 +238,10 @@ function renderClassList() {
         }
         
         const isChecked = activeSet.has(cls) ? "checked" : "";
+        const color = currentDatavizState.class_colors[cls] || '#ccc';
         label.innerHTML = `
             <input type="checkbox" ${isChecked} onchange="toggleClass('${cls}')" class="accent-indigo-600 w-3 h-3 rounded-sm">
+            <span class="w-3 h-3 rounded-full inline-block shrink-0 shadow-sm border border-gray-200" style="background-color: ${color};"></span>
             <span class="truncate flex-1 text-gray-700">${cls}</span>
         `;
         container.appendChild(label);

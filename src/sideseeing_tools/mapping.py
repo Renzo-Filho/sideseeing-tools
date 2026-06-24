@@ -35,8 +35,9 @@ class MapMatcher:
             return
 
         if 'accuracy' in df_gps.columns:
+            df_gps = df_gps.copy()
             df_gps['accuracy'] = pd.to_numeric(df_gps['accuracy'], errors='coerce')
-            df_gps = df_gps[df_gps['accuracy'] <= 15.0]
+            df_gps = df_gps.loc[df_gps['accuracy'] <= 15.0]
 
         df_gps = df_gps.sort_values(by='Datetime UTC').dropna(subset=['latitude', 'longitude'])
         coords = list(zip(df_gps['longitude'], df_gps['latitude']))

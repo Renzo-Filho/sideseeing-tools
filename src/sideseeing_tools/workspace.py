@@ -281,6 +281,11 @@ class SideSeeingWorkspace:
         center_longitude = raw_lon
         
         gpkg_path = self.routes_gpkg_dir / f"{instance_name}.gpkg"
+        
+        # Fallback for custom files without the 'data_' prefix
+        if not gpkg_path.exists() and instance_name.startswith("data_"):
+            gpkg_path = self.routes_gpkg_dir / f"{instance_name[5:]}.gpkg"
+            
         if gpkg_path.exists():
             try:
                 gdf = gpd.read_file(gpkg_path)
@@ -330,13 +335,32 @@ class SideSeeingWorkspace:
             print(f"[Workspace] Processing detections from {prompt_dir.name}")
             df_det = pd.read_csv(detections_csv)
             
-            df_det['instance_name'] = df_det['relative_path'].apply(lambda x: x.split('-frames')[0] if isinstance(x, str) else None)
+            def extract_instance_name(x):
+                if not isinstance(x, str): return None
+                folder = x.split('/')[0]
+                if folder.endswith('-frames'):
+                    folder = folder[:-7]
+                return folder
             
-            for instance_name, group in df_det.groupby('instance_name'):
-                instance = dataset.instances.get(instance_name)
-                if not instance:
-                    print(f"[Workspace Warning] Instance {instance_name} not found in dataset. Skipping.")
+            df_det['parsed_instance_name'] = df_det['relative_path'].apply(extract_instance_name)
+            
+            # Precompute a clean name mapping to handle variations (with/without 'data_' prefix or hyphens)
+            clean_sample_map = {s.name.replace("-", "").replace("data_", ""): s.name for s in dataset.iterator}
+            
+            for parsed_name, group in df_det.groupby('parsed_instance_name'):
+                if not parsed_name:
                     continue
+                    
+                clean_parsed = parsed_name.replace("-", "").replace("data_", "")
+                actual_instance_name = clean_sample_map.get(clean_parsed)
+                
+                instance = dataset.instances.get(actual_instance_name) if actual_instance_name else None
+                
+                if not instance:
+                    print(f"[Workspace Warning] Instance {parsed_name} not found in dataset. Skipping.")
+                    continue
+                
+                instance_name = actual_instance_name
                     
                 df_gps = instance.geolocation_points
                 if df_gps is None or df_gps.empty:
@@ -344,9 +368,6 @@ class SideSeeingWorkspace:
                     continue
                     
                 df_gps = df_gps.copy()
-                if 'accuracy' in df_gps.columns:
-                    df_gps['accuracy'] = pd.to_numeric(df_gps['accuracy'], errors='coerce')
-                    df_gps = df_gps[df_gps['accuracy'] <= 15.0]
                     
                 df_gps['Datetime UTC'] = pd.to_datetime(df_gps['Datetime UTC']).dt.tz_localize(None)
                 df_gps = df_gps.sort_values('Datetime UTC')
@@ -363,7 +384,12 @@ class SideSeeingWorkspace:
                         continue
                     
                     frame_idx = int(match.group(1))
-                    frame_time = media_start_time + timedelta(seconds=(frame_idx / video_fps))
+                    is_ms = '_ms.' in image_name
+                    
+                    if is_ms:
+                        frame_time = media_start_time + timedelta(seconds=frame_idx)
+                    else:
+                        frame_time = media_start_time + timedelta(seconds=(frame_idx / video_fps))
                     
                     num_detections = row.get('num_detections', 0)
                     if num_detections > 0:
@@ -404,7 +430,7 @@ class SideSeeingWorkspace:
                 else:
                     common_gap = 30
                     
-                max_gap = int(common_gap * 1.5)
+                max_gap = int(common_gap * 5)
                 
                 current_event = []
                 for idx, row in df_merged.iterrows():
@@ -444,6 +470,18 @@ class SideSeeingWorkspace:
         Master function to execute the entire pipeline on the whole dataset.
         Sets up the directory, extracts frames, generates segmentations, and optionally anonymizes frames.
         """
+        self.setup_data_directory(dataset, use_symlinks)
+        self.extract_frames(dataset, extract_step)
+        
+        if anonymize_method:
+            self.anonymize_frames(dataset, method=anonymize_method)
+            
+        self.generate_segmentation(dataset, prompts)
+        
+        self.generate_map_matched_routes(dataset)
+        self.generate_sidewalk_assessment_events(dataset)
+        
+        print(f"[Workspace] Build pipeline complete! Everything is ready in {self.output_dir}.")
         self.setup_data_directory(dataset, use_symlinks)
         self.extract_frames(dataset, extract_step)
         

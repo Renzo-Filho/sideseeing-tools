@@ -49,23 +49,28 @@ function initSidewalkAssessmentMap(assessmentData) {
         const legend = L.control({position: 'bottomright'});
         legend.onAdd = function () {
             const div = L.DomUtil.create('div', 'info legend');
-            div.innerHTML += '<h4>Toggle Layers</h4>';
+            
+            div.innerHTML += `
+                <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-100">
+                    <h4 class="m-0 text-sm font-bold text-gray-800">Layers</h4>
+                    <button id="legend-toggle-all" class="text-[10px] text-indigo-500 hover:text-indigo-700 font-bold uppercase tracking-wider transition-colors focus:outline-none bg-transparent border-0 cursor-pointer">Dismark All</button>
+                </div>`;
 
             div.innerHTML += `
-                <div class="legend-item">
-                    <input type="checkbox" id="legend-checkbox-route" ${layerVisibilityState['route'] ? 'checked' : ''} class="legend-checkbox">
-                    <i style="background:#3388ff; border: 2px solid #3388ff;"></i>
-                    <label for="legend-checkbox-route">GPS Route</label>
+                <div class="legend-item flex items-center gap-2 mb-1.5">
+                    <input type="checkbox" id="legend-checkbox-route" ${layerVisibilityState['route'] ? 'checked' : ''} class="legend-checkbox accent-indigo-600 w-3 h-3 rounded-sm cursor-pointer">
+                    <i style="background:#3388ff; border: 2px solid #3388ff; width: 12px; height: 12px; display: inline-block; border-radius: 2px;"></i>
+                    <label for="legend-checkbox-route" class="text-xs text-gray-700 cursor-pointer select-none">GPS Route</label>
                 </div>`;
 
             presentTypes.forEach(type => {
                 const config = getIconConfig(type);
                 const checkboxId = `legend-checkbox-${type}`;
                 div.innerHTML +=
-                    `<div class="legend-item">
-                        <input type="checkbox" id="${checkboxId}" ${layerVisibilityState[type] ? 'checked' : ''} class="legend-checkbox">
-                        <i style="background:${config.color}"></i>
-                        <label for="${checkboxId}">${config.name}</label>
+                    `<div class="legend-item flex items-center gap-2 mb-1.5">
+                        <input type="checkbox" id="${checkboxId}" ${layerVisibilityState[type] ? 'checked' : ''} class="legend-checkbox accent-indigo-600 w-3 h-3 rounded-sm cursor-pointer">
+                        <i style="background:${config.color}; width: 12px; height: 12px; display: inline-block; border-radius: 50%;"></i>
+                        <label for="${checkboxId}" class="text-xs text-gray-700 cursor-pointer select-none">${config.name}</label>
                     </div>`;
             });
             return div;
@@ -74,6 +79,37 @@ function initSidewalkAssessmentMap(assessmentData) {
 
         // Bring the legend to the front
         legend.getContainer().style.zIndex = 1000;
+        // Make the legend look more "clean and beautiful"
+        legend.getContainer().style.backgroundColor = 'white';
+        legend.getContainer().style.padding = '12px';
+        legend.getContainer().style.borderRadius = '8px';
+        legend.getContainer().style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)';
+        legend.getContainer().style.minWidth = '160px';
+
+        const toggleAllBtn = document.getElementById('legend-toggle-all');
+        if (toggleAllBtn) {
+            toggleAllBtn.addEventListener('click', () => {
+                const checkboxes = legend.getContainer().querySelectorAll('.legend-checkbox');
+                const allUnchecked = Array.from(checkboxes).every(cb => !cb.checked);
+                
+                checkboxes.forEach(cb => {
+                    if (allUnchecked) {
+                        if (!cb.checked) cb.click();
+                    } else {
+                        if (cb.checked) cb.click();
+                    }
+                });
+                
+                toggleAllBtn.textContent = allUnchecked ? 'Dismark All' : 'Select All';
+            });
+        }
+
+        function updateToggleBtnState() {
+            if (!toggleAllBtn) return;
+            const checkboxes = legend.getContainer().querySelectorAll('.legend-checkbox');
+            const allUnchecked = Array.from(checkboxes).every(cb => !cb.checked);
+            toggleAllBtn.textContent = allUnchecked ? 'Select All' : 'Dismark All';
+        }
 
         const routeCheckbox = document.getElementById('legend-checkbox-route');
         if (routeCheckbox) {
@@ -83,6 +119,7 @@ function initSidewalkAssessmentMap(assessmentData) {
                     if (e.target.checked) map.addLayer(layerGroups['route']);
                     else map.removeLayer(layerGroups['route']);
                 }
+                updateToggleBtnState();
             });
         }
 
@@ -95,6 +132,7 @@ function initSidewalkAssessmentMap(assessmentData) {
                         if (e.target.checked) map.addLayer(layerGroups[type]);
                         else map.removeLayer(layerGroups[type]);
                     }
+                    updateToggleBtnState();
                 });
             }
         });

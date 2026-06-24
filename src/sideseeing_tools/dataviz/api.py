@@ -166,6 +166,8 @@ def get_instance_data(instance_name: str, request: Request):
     predictions_csv = getattr(request.app.state, "predictions_csv", None)
     ai_dir = getattr(request.app.state, "ai_dir", None)
     
+    all_classes = []
+    
     if ai_dir or predictions_csv:
         from sideseeing_tools.dataviz.visualizer import Visualizer
         
@@ -175,6 +177,7 @@ def get_instance_data(instance_name: str, request: Request):
         try:
             df = Visualizer._get_predictions_df(instance_ai_dir, predictions_csv)
             if not df.empty:
+                all_classes = sorted(df['class_name'].unique().tolist())
                 # Fast filtering to only iterate over frames belonging to this instance
                 valid_basenames = set(bboxes.keys())
                 instance_df = df[df['image_name'].apply(lambda x: os.path.basename(str(x)) in valid_basenames)]
@@ -191,7 +194,7 @@ def get_instance_data(instance_name: str, request: Request):
 
                     if img_basename in bboxes:
                         if 'xmin' in df.columns and pd.notna(row.get('xmin')):
-                            color_tuple = Visualizer._get_color_for_class(class_name)
+                            color_tuple = Visualizer._get_color_for_class(class_name, all_classes)
                             bboxes[img_basename].append({
                                 "class_name": class_name,
                                 "confidence": float(row.get('confidence', 1.0)),
@@ -204,9 +207,19 @@ def get_instance_data(instance_name: str, request: Request):
         except Exception as e:
             print(f"Error compiling instance data: {e}")
 
+    class_colors = {}
+    if ai_dir or predictions_csv:
+        from sideseeing_tools.dataviz.visualizer import Visualizer
+        if not all_classes:
+            all_classes = sorted(list(box_classes.union(mask_classes)))
+        for cls in box_classes.union(mask_classes):
+            color_tuple = Visualizer._get_color_for_class(cls, all_classes)
+            class_colors[cls] = f"rgb({color_tuple[0]},{color_tuple[1]},{color_tuple[2]})"
+
     return {
         "frames": frames,
         "bboxes": bboxes,
         "box_classes": sorted(list(box_classes)),
-        "mask_classes": sorted(list(mask_classes))
+        "mask_classes": sorted(list(mask_classes)),
+        "class_colors": class_colors
     }

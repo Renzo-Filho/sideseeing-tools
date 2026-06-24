@@ -124,20 +124,39 @@ class Visualizer:
         return None
 
     @staticmethod
-    def _get_color_for_class(class_name: str) -> tuple:
+    def _get_color_for_class(class_name: str, all_classes: list = None) -> tuple:
         """Generates a consistent RGBA color based on the class name."""
         if class_name.lower() == 'sidewalk':
             return (255, 165, 0, 255) # Orange for sidewalk
         if class_name.lower() == 'crosswalk':
             return (0, 255, 0, 255)   # Green for crosswalk
         
-        # Deterministic random color for unknown classes
+        # Deterministic accent color for unknown classes
         import hashlib
+        import colorsys
+        
+        if all_classes and class_name in all_classes:
+            dynamic_classes = [c for c in all_classes if c.lower() not in ['sidewalk', 'crosswalk']]
+            if class_name in dynamic_classes:
+                idx = dynamic_classes.index(class_name)
+                # Golden ratio spacing (137.5 degrees) for optimal distinctiveness
+                h = (idx * 0.618033988749895) % 1.0
+                # Alternate Saturation and Lightness to add another dimension of distinction
+                s = 0.8 + (idx % 2) * 0.15 # 0.8 or 0.95
+                l = 0.45 + (idx % 3) * 0.1 # 0.45, 0.55, 0.65
+                r, g, b = colorsys.hls_to_rgb(h, l, s)
+                return (int(r * 255), int(g * 255), int(b * 255), 255)
+
         hash_val = int(hashlib.md5(class_name.encode()).hexdigest()[:6], 16)
-        r = (hash_val & 0xFF0000) >> 16
-        g = (hash_val & 0x00FF00) >> 8
-        b = hash_val & 0x0000FF
-        return (r, g, b, 255)
+        
+        # Use HSL for vibrant accent colors
+        h = (hash_val % 360) / 360.0
+        # Saturation: 70-100%, Lightness: 45-65%
+        s = 0.7 + (hash_val % 30) / 100.0
+        l = 0.45 + ((hash_val >> 8) % 20) / 100.0
+        
+        r, g, b = colorsys.hls_to_rgb(h, l, s)
+        return (int(r * 255), int(g * 255), int(b * 255), 255)
 
     @staticmethod
     def generate_mask_vis(img_path: str, ai_dir: str, requested_classes: List[str], predictions_csv: str = None) -> Optional[io.BytesIO]:
@@ -160,6 +179,7 @@ class Visualizer:
             return None
             
         overlay = None
+        all_classes = sorted(df['class_name'].unique().tolist())
         
         for _, row in img_preds.iterrows():
             if not row['is_mask']:
@@ -185,7 +205,7 @@ class Visualizer:
                         if overlay is None:
                             overlay = np.zeros((m_np.shape[0], m_np.shape[1], 4), dtype=np.uint8)
                         
-                        color = Visualizer._get_color_for_class(class_name)
+                        color = Visualizer._get_color_for_class(class_name, all_classes)
                         mask_pixels = m_np > 0
                         
                         # Apply color instantly using boolean indexing
