@@ -31,7 +31,7 @@ classifiers = [
 dev = ["pytest", "httpx"]
 har = ["tensorflow-cpu>=2.20,<2.21", "scikit-learn>=1.5"]
 vision = ["torch>=2.7", "transformers>=5.0,<6", "Pillow>=10"]
-workspace = ["fastapi", "uvicorn", "geopandas", "shapely", "Pillow>=10"]
+workspace = ["fastapi", "uvicorn", "geopandas>=1.0", "shapely", "Pillow>=10"]
 
 [project.urls]
 Homepage = "https://github.com/rafaelpezzuto/sideseeing-tools"
