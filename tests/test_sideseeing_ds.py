@@ -4,7 +4,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from sideseeing_tools import archives, exceptions
+from sideseeing_tools import archives, exceptions, file_stats
 from sideseeing_tools.sideseeing import SideSeeingDS
 
 
@@ -51,6 +51,19 @@ class TestSideSeeingDS(unittest.TestCase):
         ds = SideSeeingDS(root_dir=Path(self.root_dir), name="TestDataset")
 
         self.assertEqual(ds.size, 1)
+
+    def test_loads_linked_recordings_without_looping(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir) / 'data'
+            data_dir.mkdir()
+            (data_dir / 'route-a').symlink_to(Path(self.root_dir) / 'instance-001')
+            (data_dir / 'loop').symlink_to(data_dir)
+
+            ds = SideSeeingDS(root_dir=temp_dir, subdir_data='data')
+
+            self.assertEqual(list(ds.instances), ['route-a'])
+            self.assertEqual(ds.metadata_path, os.path.join(ds.root_dir, 'metadata.csv'))
+            self.assertGreater(file_stats.get_dir_size(data_dir), 0)
 
     def test_loads_single_zip_archive(self):
         with tempfile.TemporaryDirectory() as temp_dir:

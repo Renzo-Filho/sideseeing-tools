@@ -1,6 +1,21 @@
 import os
 
 
+def walk(dir_path):
+    """Walk like os.walk, entering linked directories once so links cannot cause loops."""
+    seen = set()
+
+    for root, dirnames, filenames in os.walk(dir_path, followlinks=True):
+        real_root = os.path.realpath(root)
+
+        if real_root in seen:
+            dirnames[:] = []
+            continue
+
+        seen.add(real_root)
+        yield root, dirnames, filenames
+
+
 def get_dir_size(dir_path):
     """Calculate the total size of the directory in GB."""
 
@@ -12,7 +27,7 @@ def get_dir_size(dir_path):
 
     total_size = 0
 
-    for dirpath, dirnames, filenames in os.walk(dir_path):
+    for dirpath, dirnames, filenames in walk(dir_path):
         for f in filenames:
             fp = os.path.join(dirpath, f)
 
