@@ -1,225 +1,154 @@
-import os
-import io
-import hashlib
-import pandas as pd
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+"""JSON and image endpoints for the viewer.
+
+Routes must exist in the workspace and file names must be plain frame names, so a request
+can only reach frames under frames/.
+"""
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 
-# Initialize the router
+from sideseeing_tools.dataviz import predictions
+from sideseeing_tools.workspace import extract_route_frames, list_frames
+
 router = APIRouter(prefix="/api/dataviz", tags=["Dataviz"])
 
-def get_safe_path(base_dir: str, filename: str) -> str:
-    """Prevents directory traversal attacks by ensuring the path stays within base_dir."""
-    if not base_dir:
-        raise HTTPException(status_code=400, detail="Directory not configured.")
-        
-    full_path = os.path.abspath(os.path.join(base_dir, filename))
-    base_dir_abs = os.path.abspath(base_dir)
-    
-    if not full_path.startswith(base_dir_abs) or not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail="File not found or access denied.")
-    return full_path
+IMAGE_SUFFIXES = {".jpg", ".png"}  # the frame types listed by workspace.list_frames
+EXTRACT_STEP = 30
+EMPTY_PNG = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
 
-@router.get("/image/{instance_name}/{filename:path}")
-def get_raw_image(instance_name: str, filename: str, request: Request):
+
+def list_routes(workspace_dir):
+    """Routes linked in data/ or with extracted frames in frames/."""
+    workspace_dir = Path(workspace_dir)
+    data_dir, frames_dir = workspace_dir / "data", workspace_dir / "frames"
+    routes = {path.name for path in data_dir.iterdir() if path.is_dir()} if data_dir.is_dir() else set()
+
+    if frames_dir.is_dir():
+        routes |= {path.name.removesuffix("-frames") for path in frames_dir.iterdir() if path.is_dir()}
+
+    return sorted(routes)
+
+
+def route_frames_dir(workspace_dir, route):
+    frames_dir = Path(workspace_dir) / "frames"
+    named = frames_dir / f"{route}-frames"
+    # Older workspaces used frames/<route>/
+    return named if named.is_dir() or not (frames_dir / route).is_dir() else frames_dir / route
+
+
+def _workspace_for(request, route):
+    workspace_dir = request.app.state.workspace
+
+    if route not in list_routes(workspace_dir):
+        raise HTTPException(status_code=404, detail="Unknown route.")
+
+    return workspace_dir
+
+
+def _frame_path(request, route, filename):
+    path = route_frames_dir(_workspace_for(request, route), route) / filename
+
+    if Path(filename).name != filename or path.suffix not in IMAGE_SUFFIXES or not path.is_file():
+        raise HTTPException(status_code=404, detail="Frame not found.")
+
+    return path
+
+
+def _route_predictions(workspace_dir, route):
+    frames = [path.name for path in list_frames(route_frames_dir(workspace_dir, route))]
+    found = predictions.route_predictions(workspace_dir / "preds", route, frames)
+    classes = sorted({detection["class_name"] for detections in found.values() for detection in detections})
+    return frames, found, classes
+
+
+@router.get("/image/{route}/{filename}")
+def get_image(route: str, filename: str, request: Request):
     """Serves the raw extracted frame."""
-    frames_dir = request.app.state.frames_dir
-    
-    # Append the required suffix to find the correct folder, or fallback to exact instance name
-    target_path = os.path.join(f"{instance_name}-frames", filename)
-    if not os.path.exists(os.path.join(frames_dir, target_path)):
-        target_path = os.path.join(instance_name, filename)
-        
-    img_path = get_safe_path(frames_dir, target_path)
-    
-    return FileResponse(img_path)
+    return FileResponse(_frame_path(request, route, filename))
 
-@router.get("/thumb/{instance_name}/{filename:path}")
-def get_thumbnail(instance_name: str, filename: str, request: Request):
-    """Generates and serves a 200x200 thumbnail for the gallery, with caching."""
-    frames_dir = request.app.state.frames_dir
-    output_dir = getattr(request.app.state, "output_dir", "output")
-    
-    # Append the required suffix to find the correct folder, or fallback to exact instance name
-    target_path = os.path.join(f"{instance_name}-frames", filename)
-    if not os.path.exists(os.path.join(frames_dir, target_path)):
-        target_path = os.path.join(instance_name, filename)
-        
-    img_path = get_safe_path(frames_dir, target_path)
-    
-    # Setup thumb cache directory
-    thumbs_dir = os.path.join(output_dir, "cache", "thumbs")
-    os.makedirs(thumbs_dir, exist_ok=True)
-    
-    # Create a cache hash based on the original file path
-    path_hash = hashlib.md5(img_path.encode()).hexdigest()
-    thumb_path = os.path.join(thumbs_dir, f"{path_hash}.jpg")
-    
-    if not os.path.exists(thumb_path):
-        try:
-            with Image.open(img_path) as img:
-                img.thumbnail((200, 200))
-                img.save(thumb_path, "JPEG")
-        except Exception as e:
-            print(f"Failed to generate thumbnail for {filename}: {e}")
-            return FileResponse(img_path) # Fallback to original image if thumb fails
-            
-    return FileResponse(thumb_path)
 
-@router.get("/mask/{filename:path}")
+@lru_cache(maxsize=2048)
+def _thumbnail(path, mtime):
+    with Image.open(path) as image:
+        image.thumbnail((200, 200))
+        buffer = BytesIO()
+        image.convert("RGB").save(buffer, "JPEG")
+        return buffer.getvalue()
+
+
+@router.get("/thumb/{route}/{filename}")
+def get_thumbnail(route: str, filename: str, request: Request):
+    """Serves a frame thumbnail of at most 200x200 pixels for the gallery."""
+    path = _frame_path(request, route, filename)
+    return Response(_thumbnail(str(path), path.stat().st_mtime_ns), media_type="image/jpeg")
+
+
+@router.get("/mask/{filename}")
 def get_mask_overlay(filename: str, request: Request, classes: str = "", instance: str = ""):
-    """
-    Dynamically generates a transparent PNG overlay of the segmentation masks.
-    """
-    frames_dir = request.app.state.frames_dir
-    ai_dir = request.app.state.ai_dir
-    output_dir = getattr(request.app.state, "output_dir", "output")
-    
-    # Append the required suffix to find the correct base image, or fallback
-    target_path = os.path.join(f"{instance}-frames", filename)
-    if not os.path.exists(os.path.join(frames_dir, target_path)):
-        target_path = os.path.join(instance, filename)
-        
-    img_path = get_safe_path(frames_dir, target_path)
-    
-    if classes == "":
-        return _empty_transparent_png()
-        
-    requested_classes = None
-    if classes is not None:
-        requested_classes = sorted([c.strip() for c in classes.split(",") if c.strip()])
-    
-    # Setup vis cache directory
-    cache_dir = os.path.join(output_dir, "cache", "masks_vis")
-    os.makedirs(cache_dir, exist_ok=True)
-    
-    # Cache based on the image AND the specific combination of classes requested
-    h_base = hashlib.md5(img_path.encode()).hexdigest()
-    h_filter = hashlib.md5("".join(requested_classes).encode()).hexdigest()[:8]
-    cache_path = os.path.join(cache_dir, f"{h_base}_{h_filter}.png")
-    
-    if os.path.exists(cache_path):
-        return FileResponse(cache_path)
+    """A transparent PNG with the masks of the requested classes for one frame."""
+    _frame_path(request, instance, filename)
+    requested = {name.strip() for name in classes.split(",") if name.strip()}
+    _, found, all_classes = _route_predictions(request.app.state.workspace, instance)
+    overlay = predictions.mask_overlay(found.get(filename, []), requested, all_classes) if requested else None
+    return Response(overlay or EMPTY_PNG, media_type="image/png")
 
-    masks_dir = getattr(request.app.state, "masks_dir", None)
-    predictions_csv = getattr(request.app.state, "predictions_csv", None)
-    
-    # Scope to the global ai_dir and let visualizer index logic handle nested structures
-    instance_ai_dir = ai_dir
-    
-    if not instance_ai_dir or not os.path.exists(instance_ai_dir):
-        return _empty_transparent_png()
-        
-    try:
-        from sideseeing_tools.dataviz.visualizer import generate_mask_vis 
-        img_io = generate_mask_vis(img_path, instance_ai_dir, requested_classes, predictions_csv)
-        
-        if img_io:
-            with open(cache_path, "wb") as f:
-                f.write(img_io.getvalue())
-            img_io.seek(0)
-            return StreamingResponse(img_io, media_type="image/png")
-        else:
-            return _empty_transparent_png()
-            
-    except Exception as e:
-        print(f"Mask generation failed: {e}")
-        return _empty_transparent_png()
 
-def _empty_transparent_png():
-    """Helper to return a 1x1 transparent PNG if no mask data exists."""
-    empty_png = b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
-    return StreamingResponse(io.BytesIO(empty_png), media_type="image/png")
+@router.get("/data/{route}")
+def get_route_data(route: str, request: Request):
+    """Frames, boxes with scores, and the box and mask classes of one route."""
+    frames, found, classes = _route_predictions(_workspace_for(request, route), route)
+    colors = {name: "rgb({},{},{})".format(*predictions.class_color(name, classes)[:3]) for name in classes}
+    bboxes = {}
 
-@router.get("/data/{instance_name}")
-def get_instance_data(instance_name: str, request: Request):
-    """
-    Returns the JSON payload containing the list of frames, available classes, 
-    and bounding boxes for a specific SideSeeing instance.
-    """
-    frames_dir = getattr(request.app.state, "frames_dir", None)
-    ai_dir = getattr(request.app.state, "ai_dir", None)
-    
-    if not frames_dir:
-        raise HTTPException(status_code=400, detail="Frames directory not configured.")
+    for name, detections in found.items():
+        bboxes[name] = []
 
-    # 1. Fetch available frames
-    instance_frames_dir = os.path.join(frames_dir, f"{instance_name}-frames")
-    if not os.path.exists(instance_frames_dir):
-        instance_frames_dir = os.path.join(frames_dir, instance_name)
-    
-    # If frames aren't extracted yet, return empty arrays so the UI knows to show a "No frames" state
-    if not os.path.exists(instance_frames_dir):
-        return {"frames": [], "bboxes": {}, "classes": []}
+        for detection in detections:
+            boxes = detection["boxes"]
+            scores = detection["scores"] if len(detection["scores"]) == len(boxes) else [None] * len(boxes)
 
-    valid_exts = {".jpg", ".jpeg", ".png"}
-    frames = sorted([
-        f for f in os.listdir(instance_frames_dir)
-        if os.path.splitext(f)[1].lower() in valid_exts
-    ])
+            for score, (x_min, y_min, x_max, y_max) in zip(scores, boxes):
+                bboxes[name].append(dict(
+                    class_name=detection["class_name"], confidence=score, color=colors[detection["class_name"]],
+                    xmin=x_min, ymin=y_min, xmax=x_max, ymax=y_max,
+                ))
 
-    bboxes = {f: [] for f in frames}
-    box_classes = set()
-    mask_classes = set()
-
-    predictions_csv = getattr(request.app.state, "predictions_csv", None)
-    ai_dir = getattr(request.app.state, "ai_dir", None)
-    
-    all_classes = []
-    
-    if ai_dir or predictions_csv:
-        from sideseeing_tools.dataviz.visualizer import Visualizer
-        
-        # In the strict dataset format, ai_dir is the root preds/ folder
-        instance_ai_dir = ai_dir
-        
-        try:
-            df = Visualizer._get_predictions_df(instance_ai_dir, predictions_csv)
-            if not df.empty:
-                all_classes = sorted(df['class_name'].unique().tolist())
-                # Fast filtering to only iterate over frames belonging to this instance
-                valid_basenames = set(bboxes.keys())
-                instance_df = df[df['image_name'].apply(lambda x: os.path.basename(str(x)) in valid_basenames)]
-                
-                for _, row in instance_df.iterrows():
-                    img_basename = os.path.basename(str(row['image_name']))
-                    class_name = str(row['class_name'])
-                    
-                    # SEPARATE BY TYPE
-                    if row.get('is_mask', False):
-                        mask_classes.add(class_name)
-                    else:
-                        box_classes.add(class_name)
-
-                    if img_basename in bboxes:
-                        if 'xmin' in df.columns and pd.notna(row.get('xmin')):
-                            color_tuple = Visualizer._get_color_for_class(class_name, all_classes)
-                            bboxes[img_basename].append({
-                                "class_name": class_name,
-                                "confidence": float(row.get('confidence', 1.0)),
-                                "xmin": float(row['xmin']),
-                                "ymin": float(row['ymin']),
-                                "xmax": float(row['xmax']),
-                                "ymax": float(row['ymax']),
-                                "color": f"rgb({color_tuple[0]},{color_tuple[1]},{color_tuple[2]})"
-                            })
-        except Exception as e:
-            print(f"Error compiling instance data: {e}")
-
-    class_colors = {}
-    if ai_dir or predictions_csv:
-        from sideseeing_tools.dataviz.visualizer import Visualizer
-        if not all_classes:
-            all_classes = sorted(list(box_classes.union(mask_classes)))
-        for cls in box_classes.union(mask_classes):
-            color_tuple = Visualizer._get_color_for_class(cls, all_classes)
-            class_colors[cls] = f"rgb({color_tuple[0]},{color_tuple[1]},{color_tuple[2]})"
-
+    detections = [detection for found_list in found.values() for detection in found_list]
     return {
         "frames": frames,
         "bboxes": bboxes,
-        "box_classes": sorted(list(box_classes)),
-        "mask_classes": sorted(list(mask_classes)),
-        "class_colors": class_colors
+        "box_classes": sorted({d["class_name"] for d in detections if d["boxes"]}),
+        "mask_classes": sorted({d["class_name"] for d in detections if d["mask"]}),
+        "class_colors": colors,
     }
+
+
+def _extract(jobs, route, video, frames_dir):
+    try:
+        extract_route_frames(video, frames_dir, f"{route}_", EXTRACT_STEP)
+        jobs[route] = "completed"
+    except Exception as error:
+        print(f"Frame extraction failed for {route}: {error}")
+        jobs[route] = "error"
+
+
+@router.post("/extract/{route}")
+def trigger_extraction(route: str, background_tasks: BackgroundTasks, request: Request):
+    """Extracts one frame per EXTRACT_STEP video frames in the background."""
+    workspace_dir = _workspace_for(request, route)
+    video = workspace_dir / "data" / route / "video.mp4"
+
+    if not video.is_file():
+        raise HTTPException(status_code=404, detail=f"Video not found for {route}")
+
+    jobs = request.app.state.extraction_jobs
+    if jobs.get(route) == "processing":
+        return {"message": "Extraction already in progress", "status": "processing"}
+
+    jobs[route] = "processing"
+    background_tasks.add_task(_extract, jobs, route, video, workspace_dir / "frames" / f"{route}-frames")
+    return {"message": "Extraction started", "status": "processing"}

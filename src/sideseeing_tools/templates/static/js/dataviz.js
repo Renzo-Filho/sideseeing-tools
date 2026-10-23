@@ -162,10 +162,11 @@ function renderBBoxes(filename) {
             rect.setAttribute("stroke-width", "2");
             rect.style.transition = "stroke-width 0.2s, opacity 0.2s";
 
+            const label = box.confidence == null ? box.class_name : `${box.class_name} ${box.confidence.toFixed(2)}`;
             const textBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
             textBg.setAttribute("x", box.xmin);
             textBg.setAttribute("y", box.ymin - 16);
-            textBg.setAttribute("width", (box.class_name.length * 6) + 8);
+            textBg.setAttribute("width", (label.length * 6) + 8);
             textBg.setAttribute("height", 16);
             textBg.setAttribute("fill", box.color || "#00ff00");
             textBg.setAttribute("rx", "2");
@@ -177,7 +178,7 @@ function renderBBoxes(filename) {
             text.setAttribute("font-size", "10px");
             text.setAttribute("font-family", "sans-serif");
             text.setAttribute("font-weight", "bold");
-            text.textContent = box.class_name;
+            text.textContent = label;
             
             group.appendChild(rect);
             group.appendChild(textBg);

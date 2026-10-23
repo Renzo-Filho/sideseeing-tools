@@ -1,0 +1,76 @@
+/* Viewer styles on top of custom.css: map controls, sidewalk assessment markers, popups and legend. */
+.leaflet-top.leaflet-right .leaflet-control {
+    float: left;
+    margin-right: 10px;
+}
+.leaflet-bar.leaflet-control.leaflet-control-custom {
+    display: flex;
+}
+.leaflet-control-container {
+    z-index: 1001 !important;
+}
+
+#sidewalk-assessment-map-wrapper.is-fullscreen #sidewalk-assessment-map {
+    height: 100% !important;
+    border-radius: 0 !important;
+}
+
+.leaflet-custom-marker {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.6);
+}
+
+.leaflet-popup-content-wrapper {
+    border-radius: 8px;
+}
+.leaflet-popup-content {
+    margin: 15px;
+    width: auto !important;
+    min-width: 400px;
+}
+.leaflet-popup-content img {
+    width: 100%;
+    height: auto;
+    max-height: 350px;
+    object-fit: cover;
+    cursor: pointer;
+}
+
+.legend {
+    background: white;
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.2);
+    z-index: 1001 !important;
+}
+.legend h4 {
+    margin: 0 0 5px;
+    font-weight: bold;
+    font-size: 14px;
+}
+.legend .legend-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+}
+.legend i {
+    width: 18px;
+    height: 18px;
+    float: left;
+    margin-right: 8px;
+    opacity: 0.9;
+    border-radius: 50%;
+}
+.legend .legend-item i {
+    border: none !important;
+}
+.legend label {
+    font-size: 12px;
+    cursor: pointer;
+}
+.legend-checkbox {
+    margin-right: 8px;
+}
