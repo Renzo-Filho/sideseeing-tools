@@ -13,6 +13,7 @@ from sideseeing_tools import (
     archives,
     constants,
     exceptions,
+    file_stats,
     media,
     csv_io,
     geolocation,
@@ -89,7 +90,7 @@ class SideSeeingDS:
         invalid_instances = []
 
         for data_dir in self._data_dirs:
-            for root, _, files in os.walk(data_dir):
+            for root, _, files in file_stats.walk(data_dir):
                 for f in files:
                     ssf = SideSeeingFile(data_dir, os.path.join(root, f))
 
@@ -140,6 +141,10 @@ class SideSeeingDS:
     @property
     def size(self):
         return len(self.instances)
+
+    @property
+    def metadata_path(self):
+        return self._metadata_path
 
     @property
     def iterator(self):
