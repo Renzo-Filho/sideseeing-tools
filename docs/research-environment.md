@@ -25,14 +25,14 @@ conda env create -f environment.yml
 conda activate sideseeing
 python -m pip install --upgrade pip
 python -m pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -e '.[vision,dev]'
+python -m pip install -e '.[vision,workspace,dev]'
 python -m pip install openai-whisper
 python -m pip check
 ```
 
 The Conda packages cover FFmpeg and native geospatial libraries used by the current package; the subsequent pip steps install CUDA PyTorch, this checkout, SAM3's current Hugging Face image backend, and Whisper. `environment.yml` does not include the pip steps so the CUDA wheel index and install order are explicit. This file is a bootstrap specification, not yet a tested lockfile.
 
-The current `Segmenter` downloads the gated `facebook/sam3` checkpoint through Hugging Face. Obtain access at <https://huggingface.co/facebook/sam3> and authenticate on desktop-01 with `hf auth login` before the first model run. No token should be committed to Git. The existing library uses Transformers for SAM3 images. Transformers also has a SAM3 video API that we can evaluate in this same environment. The official `facebookresearch/sam3` package is an alternative video backend; it is not installed here.
+`sideseeing_tools.vision.segmentation.Sam3Segmenter` downloads the gated `facebook/sam3` checkpoint through Hugging Face at a pinned revision. Obtain access at <https://huggingface.co/facebook/sam3> and authenticate on desktop-01 with `hf auth login` before the first model run, or copy a saved checkpoint and pass its folder: `Sam3Segmenter('/path/to/sam3-offline', MODEL_REVISION, local_files_only=True)`. No token or weights should be committed to Git. The `vision` extra requires `transformers>=5,<6`, so rerun `pip check` after reinstalling. The library uses Transformers for SAM3 images. Transformers also has a SAM3 video API that we can evaluate in this same environment. The official `facebookresearch/sam3` package is an alternative video backend; it is not installed here.
 
 ## Check the setup
 
@@ -51,7 +51,9 @@ For a first Whisper run on a short video, use a model that fits comfortably in 8
 whisper /path/to/short-video.mp4 --model small --device cuda --output_dir /path/to/output
 ```
 
-The first run downloads model weights. Start SAM3 image inference with `batch_size=1` on a few frames and record peak GPU memory before increasing batch size. A SAM3 video tracking backend should be evaluated separately because continuous tracking has different memory and output behavior from the library's current independent-frame segmentation.
+The first run downloads model weights. Start SAM3 image inference with `batch_size=1` on a few frames and record peak GPU memory before increasing batch size. The workspace keeps one chunk of masks in memory (`chunk_size`, 16 frames by default); lower it for 4K video.
+
+To inspect results from a laptop, run the viewer on desktop-01 (`python -m sideseeing_tools.dataviz -i /path/to/workspace`) and forward its port through both hops: `ssh -t -L 5000:localhost:5000 renzo@utk.evl.uic.edu ssh -L 5000:localhost:5000 utk-desktop-01`. A SAM3 video tracking backend should be evaluated separately because continuous tracking has different memory and output behavior from the library's current independent-frame segmentation.
 
 ## Source documentation
 

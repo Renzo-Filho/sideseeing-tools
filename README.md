@@ -172,6 +172,20 @@ Reports preserve source files by default. `generate_metadata=True` explicitly
 requests a source `metadata.csv`. Analysis DataFrames retain provenance in `.attrs`;
 CSV export does not preserve those attributes.
 
+## Workspaces and viewer
+
+`SideSeeingWorkspace` keeps a study's derived results (extracted frames, SAM3
+predictions, redacted copies, map-matched routes and sidewalk events) next to links
+to the raw recordings. A local viewer inspects them and links to the report.
+
+```bash
+pip install "sideseeing-tools[workspace,vision]"
+python examples/build_workspace.py -i ./dataset -o ./workspace -p sidewalk --report
+python -m sideseeing_tools.dataviz -i ./workspace
+```
+
+See [doc-workspace.md](doc-workspace.md) and [doc-dataviz.md](doc-dataviz.md).
+
 ## Development
 
 ```bash

@@ -4,9 +4,13 @@
 
 Keep the useful `data/`, `frames/`, `preds/`, and `geomatching/` workspace layout while making runs reproducible, resumable, and consumable by both the report and dataviz modules. Add SAM3 and Whisper as optional analysis capabilities for videos. This is a plan; model integration and structural changes are not implemented yet.
 
+## Status after merging upstream 0.11.0 (2026-10-23)
+
+Branch `merge/upstream-0.11` merges upstream 0.11.0 and fixes the baseline-audit findings below; `fix/symlinked-datasets` holds the core fix proposed to upstream separately. Done: tasks 3–6 and 10 (except the GPU measurement in task 6 and a CI run), and the SAM3 overlay part of task 8. Remaining: a SAM3 smoke run and memory measurement on desktop-01, a fresh-environment install check (task 2), Whisper (tasks 7–9), and deciding whether SAM3 video tracking is worth its cost.
+
 ## Current architecture
 
-`SideSeeingDS` reads the raw route dataset. `SideSeeingWorkspace` links that data, extracts frames, invokes the image-based Hugging Face SAM3 `Segmenter`, and writes masks and a detections CSV. `Report` generates the HTML report. The FastAPI dataviz server reads the workspace and overlays predictions. Whisper is not integrated. The separate `sam3.py` and `sam3-offline/` in the working tree are untracked experiments and should be preserved.
+`SideSeeingDS` reads the raw route dataset. `SideSeeingWorkspace` links that data, extracts frames with a `frames.json` record, runs upstream's `Sam3Segmenter` and writes `save_segmentations` manifests per prompt, route and chunk, writes redacted copies with `redact_image`, map-matches routes and builds sidewalk events. Upstream's `Report` writes the static report to `report/`. The local viewer (`python -m sideseeing_tools.dataviz`) serves the interactive pages and the report. Whisper is not integrated. The separate `sam3.py` and `sam3-offline/` in the working tree are untracked experiments and should be preserved.
 
 ## Findings to validate in a baseline audit
 

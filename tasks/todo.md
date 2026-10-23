@@ -29,8 +29,8 @@
 **Description:** Record route, source video, frame/timestamp, model, prompt, parameters, output path, and run status in a versioned schema while reading existing CSV workspaces.
 
 **Acceptance criteria:**
-- [ ] Two routes with the same frame basename remain distinct.
-- [ ] Existing `detections.csv` files still load through a compatibility adapter.
+- [x] Two routes with the same frame basename remain distinct.
+- [x] Existing `detections.csv` files still load through a compatibility adapter.
 - [ ] The location and format of transcript artifacts are documented.
 
 **Verification:** Contract tests on fixture outputs and a representative existing workspace.
@@ -42,9 +42,9 @@
 **Description:** Remove duplicate orchestration and make extraction and segmentation completion checks cover the full artifact set. Keep source and anonymized frames distinguishable.
 
 **Acceptance criteria:**
-- [ ] `build_workspace()` executes each requested stage once.
-- [ ] A run interrupted between mask and CSV writing can be resumed without missing rows or duplicate results.
-- [ ] Changing extraction parameters triggers a deliberate rebuild or a clear error.
+- [x] `build_workspace()` executes each requested stage once.
+- [x] A run interrupted between mask and CSV writing can be resumed without missing rows or duplicate results.
+- [x] Changing extraction parameters triggers a deliberate rebuild or a clear error.
 
 **Verification:** Unit tests with interrupted output and changed step values; compare output counts after two runs.
 
@@ -55,9 +55,9 @@
 **Description:** Resolve paths against a trusted root, validate route names, and use loopback as the default server host.
 
 **Acceptance criteria:**
-- [ ] Sibling-prefix and symlink traversal attempts are rejected.
-- [ ] Extraction cannot read outside the selected dataset.
-- [ ] Default server URL is local and documented for SSH port forwarding.
+- [x] Sibling-prefix and symlink traversal attempts are rejected.
+- [x] Extraction cannot read outside the selected dataset.
+- [x] Default server URL is local and documented for SSH port forwarding.
 
 **Verification:** FastAPI route tests for valid and invalid paths; start the server on a test port.
 
@@ -68,7 +68,7 @@
 **Description:** Run image SAM3 on one clip's extracted frames and persist masks, boxes, scores, timestamps, and model provenance in the artifact contract. Assess video tracking separately after the GPU measurement.
 
 **Acceptance criteria:**
-- [ ] One prompt yields route-scoped, reproducible predictions that the dataviz overlay can load.
+- [x] One prompt yields route-scoped, reproducible predictions that the dataviz overlay can load.
 - [ ] Batch size 1 has a measured peak VRAM and elapsed time on desktop-01.
 - [ ] Failed frames are reported and can be retried.
 
@@ -94,8 +94,8 @@
 **Description:** Use route-scoped artifact records to show SAM3 confidence/overlays and Whisper segments near the corresponding video time.
 
 **Acceptance criteria:**
-- [ ] Repeated frame names from different routes never mix overlays.
-- [ ] New completed artifacts appear without restarting the server.
+- [x] Repeated frame names from different routes never mix overlays.
+- [x] New completed artifacts appear without restarting the server.
 - [ ] Transcript segments can be inspected by route and timestamp.
 
 **Verification:** API tests plus a browser walkthrough using the fixture.
@@ -119,8 +119,8 @@
 **Description:** Add CI checks for Python 3.12 tests and packaging before the publish job.
 
 **Acceptance criteria:**
-- [ ] Pull requests run focused tests and a package build.
-- [ ] Publishing depends on the test job passing.
+- [x] Pull requests run focused tests and a package build.
+- [x] Publishing depends on the test job passing.
 
 **Verification:** Review the CI workflow and run its commands locally.
 

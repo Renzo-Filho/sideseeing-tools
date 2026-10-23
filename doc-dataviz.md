@@ -1,199 +1,62 @@
-# SideSeeing Dataviz Integration (Local Server)
+# SideSeeing Viewer
 
-## Overview
+The viewer is a local web server for a [workspace](doc-workspace.md). It complements the static report: the report is a shareable page of summaries, sensors, Wi-Fi and maps, while the viewer inspects model results on the raw frames and needs the server running.
 
-The SideSeeing Dataviz integration introduces a scalable, dynamic web server for inspecting AI object detections and segmentation masks overlaid on video frames.
+| Section | What it shows |
+|---|---|
+| Sidewalk Assessment | Map of each route's matched path and sidewalk events; each marker opens the event's frames |
+| Video Frames | Extracted frames of a route, with a button to extract them if missing |
+| Dataviz | SAM3 masks and boxes with scores over each frame, filterable by class |
+| Report | The static report in `report/`, when it exists |
 
-To handle massive datasets and thousands of frames without freezing or inflating disk storage, this module transitions the report from a purely static HTML export (Server-Side Rendered) to a dynamic Client-Side Rendered (CSR) application backed by a lightning-fast local **FastAPI** server.
-
-### Key Features:
-* **Decoupled Architecture:** Raw data, AI predictions, and extracted frames are kept in separate directories.
-* **On-the-fly Image Processing:** Numpy-accelerated mask blending and auto-caching.
-* **Format-Agnostic Adapters:** Natively supports both Project Sidewalk (wide-format) and SAM3 (long-format) predictions via the Adapter pattern.
-* **Background Frame Extraction:** Asynchronous frame extraction directly from the UI without blocking the server.
-* **Advanced UI Controls:** Independent Box/Mask filtering tabs, real-time detection statistics, and deep navigation controls (jump by 10, 100, 1000 frames).
-
----
-
-## 1. Installation & Environment Setup
-
-It is highly recommended to run the SideSeeing server inside an isolated virtual environment.
-
-**Step 1: Create the Virtual Environment**
-```bash
-python -m venv venv
-
-```
-
-**Step 2: Activate the Environment**
-
-* **Linux / macOS:** `source venv/bin/activate`
-* **Windows (Cmd):** `venv\Scripts\activate.bat`
-* **Windows (PS):** `.\venv\Scripts\Activate.ps1`
-
-**Step 3: Install Dependencies**
+## Run it
 
 ```bash
-pip install -r requirements.txt
-
+pip install "sideseeing-tools[workspace]"
+python -m sideseeing_tools.dataviz -i /path/to/workspace -p 5000
 ```
 
----
+Open <http://127.0.0.1:5000>. To include the report, run `SideSeeingWorkspace('/path/to/workspace').generate_report()` first.
 
-## 2. Directory Structure Setup
+From Python, `start_server(workspace_dir, port=5000, host='127.0.0.1')` runs the server and `create_app(workspace_dir)` returns the FastAPI application without starting it.
 
-The server requires a strict, unified dataset layout under a single root directory. You must organize your workspace as follows before starting the server:
+### On a remote machine
 
-```text
-dataset_root/                <-- Passed as: -i ./dataset_root
-├── metadata.csv
-├── data/
-│   └── route01/             <-- (This is your "instance_name")
-│       ├── video.mp4
-│       └── sensors.three.csv
-│
-├── frames/
-│   └── route01-frames/      <-- MUST be named exactly {instance_name}-frames
-│       ├── route01_0001.jpg 
-│       └── route01_0002.jpg
-│
-└── preds/
-    ├── predictions.csv      <-- Global predictions file 
-    ├── sam3-crosswalk/      <-- Model-specific predictions
-    │   ├── detections.csv
-    │   └── route01-frames/
-    │       └── route01_0001-mask.png
-    └── sam3-curbramp/
-        ├── detections.csv
-        └── route01-frames/
-            └── route01_0001-mask.png
-```
-
-## 3. Running the Server (CLI)
-
-The server is invoked via the `sideseeing_tools.dataviz` module.
-
-**Start the Server:**
+The server listens on `127.0.0.1` only. Forward the port over SSH instead of exposing it; for example, through a jump host:
 
 ```bash
-python -m sideseeing_tools.dataviz \
-    -i ./dataset_root \
-    -o ./report_output \
-    -p 5000
+ssh -L 5000:localhost:5000 -J user@jump.example.org user@gpu-host
+python -m sideseeing_tools.dataviz -i /path/to/workspace   # on gpu-host
 ```
 
-### CLI Arguments Reference
+`--host 0.0.0.0` makes the viewer reachable by anyone on the network, including its unredacted frames.
 
-| Argument | Short | Description | Default |
-| --- | --- | --- | --- |
-| `--input_dir` | `-i` | **(Required)** Path to the root dataset directory containing `data/`, `frames/`, `preds/`, etc. | *None* |
-| `--output_dir` | `-o` | Path to save/read the generated HTML report and static files. | `./output` |
-| `--port` | `-p` | The port to run the ASGI server on. | `5000` |
+## What it reads
 
-Once the server boots, navigate to `http://localhost:5000` and click the **Dataviz** tab.
+| Source | Location |
+|---|---|
+| Routes | Folders in `data/` and `frames/` |
+| Frames | `frames/<route>-frames/` (or `frames/<route>/` in older workspaces) |
+| SAM3 results | `preds/sam3/<prompt>/<route>/<chunk>/manifest.json` and its `.npz` files |
+| Older SAM3 results | `preds/<model>/detections.csv` with masks in `preds/<model>/<route>-frames/<frame>-mask.png` |
+| Project Sidewalk labels | `preds/predictions.csv`: an `image` column and one 0/1 column per class |
+| Events and paths | `geomatching/map_events.csv` and `geomatching/routes_gpkg/<route>.gpkg` |
 
----
+Results are read per route, so frames with the same name in different routes never share overlays. Parsed files are cached until they change, so results written while the server runs appear on the next request. The server writes nothing into the workspace except frames requested through Video Frames.
 
-## 4. User Interface & Features
+## API
 
-The Dataviz UI provides granular control over how you inspect AI outputs:
+| Endpoint | Returns |
+|---|---|
+| `GET /api/dataviz/data/{route}` | Frame names, boxes with scores per frame, box and mask classes, class colors |
+| `GET /api/dataviz/image/{route}/{frame}` | The frame |
+| `GET /api/dataviz/thumb/{route}/{frame}` | A thumbnail of at most 200x200 pixels |
+| `GET /api/dataviz/mask/{frame}?instance={route}&classes=a,b` | Transparent PNG with the masks of the given classes |
+| `POST /api/dataviz/extract/{route}` | Starts extracting one frame every 30 video frames |
+| `GET /api/viewer/assessment/{route}` | Map center, events with frame URLs, and the matched path |
 
-1. **Box & Mask Separation (Tabs):** Because bounding boxes and segmentation masks serve different analytical purposes, they are split into separate tabs in the sidebar. Toggling a class in the "Boxes" tab will not affect its mask counterpart, allowing precise visual isolation.
-2. **Real-time Statistics:** A dynamic statistics panel calculates the exact number of visible bounding boxes currently rendered on the frame, sorted by frequency.
-3. **Advanced Navigation:** Skip through lengthy video captures easily using the footer controls. You can jump forward/backward by 1, 10, 100, or 1000 frames, or type a specific frame number into the center input.
-4. **Hover Inspection:** Hovering over a class name in the sidebar will highlight the corresponding bounding boxes on the canvas by increasing their stroke width.
+Requests only accept route names present in the workspace and plain frame names, so they cannot reach files outside `frames/` and `report/`.
 
----
+## Supporting another model
 
-## 5. Deep Dive: Data Processing & Architectural Flow
-
-The Dataviz module is built to handle massive datasets dynamically. Instead of generating gigabytes of static HTML and overlaid images beforehand, it processes requests "Just-In-Time". Here is the lifecycle of the data.
-
-### Step 5.1: Ingestion & Normalization (`dataviz/adapters.py`)
-
-AI models output data in wildly varying formats. For example, Project Sidewalk uses a *wide* binary format (columns for each class: `crosswalk`, `curbramp`), whereas SAM3 uses a *long* format.
-When the server boots, the `PredictionAdapter` intercepts these CSVs and maps them to a **Unified Schema**:
-`['image_name', 'class_name', 'confidence', 'is_mask', 'xmin', 'ymin', 'xmax', 'ymax']`
-This allows the core engine to remain entirely agnostic to the AI model used.
-
-### Step 5.2: API Data Compilation (`dataviz/api.py`)
-
-When a user selects an instance (e.g., `route01`) from the dropdown, the frontend calls `/api/dataviz/data/route01`. The backend:
-
-1. Scans the `frames_dir` to build an ordered array of available `.jpg` frames.
-2. Reads the normalized AI DataFrame and separates the detected classes into two isolated sets: `box_classes` and `mask_classes` (based on the `is_mask` flag).
-3. Groups Bounding Box coordinates by frame, generating consistent deterministic RGB colors for each class using an MD5 hash.
-4. Returns a comprehensive JSON payload to initialize the frontend state.
-
-### Step 5.3: Frontend State Management (`dataviz.js`)
-
-The browser receives the JSON payload and builds a local `currentDatavizState` object.
-The UI relies on an SVG Layer (for drawing boxes) and an `<img>` tag (for the base frame and mask overlay). The JS logic tracks exactly which classes the user has toggled on/off in the active `Set()`.
-
-### Step 5.4: Dynamic Mask Rendering (`dataviz/visualizer.py`)
-
-Drawing bounding boxes via SVG in the browser is cheap, but rendering complex segmentation masks is expensive. Instead of forcing the browser to calculate pixels, we delegate this to NumPy on the backend.
-When the frontend needs a mask, it requests an image URL containing the active classes:
-`/api/dataviz/mask/frame_001.jpg?classes=sidewalk,crosswalk`
-
-The Backend intercepts this and:
-
-1. Locates the raw grayscale mask `.png` generated by the AI.
-2. Converts it into a NumPy array.
-3. Filters out unrequested classes (`requested_classes and class_name not in requested_classes`).
-4. Uses blazing-fast boolean indexing (`mask_pixels = m_np > 0`) to inject the generated RGBA colors into a transparent canvas matrix.
-5. Encodes the resulting matrix to a PNG byte stream and sends it to the browser.
-6. **Caching:** The specific combination of requested classes is hashed (`h_filter = MD5("sidewalk,crosswalk")`). Subsequent requests for this exact visual state are served instantly from disk cache.
-
----
-
-## 6. Background Frame Extraction
-
-Because extracting frames from `.mp4` files is CPU-intensive, the server handles this asynchronously.
-
-1. Navigate to an instance in the UI.
-2. If frames have not been extracted yet, the UI will display a prompt.
-3. Click **"Extract Frames"**.
-4. The server triggers a `BackgroundTasks` thread using `moviepy`/`cv2` to extract frames at 1 FPS. You can continue browsing other tabs without blocking the web server.
-5. The UI will automatically poll the server every 5 seconds and refresh the viewer once the extraction completes.
-
----
-
-## 7. Programmatic Usage (Python API)
-
-You can embed the server boot sequence into automated pipelines or Jupyter Notebooks.
-
-**Standard Directory Structure:**
-```python
-from sideseeing_tools.dataviz import start_server
-
-# Start the ASGI server synchronously
-start_server(
-    input_dir="./data/raw",
-    output_dir="./report",
-    ai_dir="./data/preds",
-    frames_dir="./data/frames",
-    port=8080
-)
-```
-
-**Branched Dataset Structure:**
-```python
-from sideseeing_tools.dataviz import start_server
-
-start_server(
-    input_dir="./remote_storage/data",
-    output_dir="./report_output",
-    frames_dir="./remote_storage/data/01_image_sequences",
-    masks_dir="./remote_storage/results/segmentation",
-    predictions_csv="./remote_storage/analysis/predictions.csv",
-    metadata_csv="./remote_storage/dataset/metadata.csv",
-    port=5000
-)
-```
-
-## 8. Extending AI Models (Adapter Pattern)
-
-If you need to support a new AI model format (e.g., YOLOv10) in the future, you do **not** need to touch the UI, the API, or the image-processing engine.
-
-Simply open `src/sideseeing_tools/dataviz/adapters.py` and add a new detection rule to `load_and_normalize()`. Ensure your new adapter returns a Pandas DataFrame containing the standard columns: `['image_name', 'class_name', 'confidence', 'is_mask', 'xmin', 'ymin', 'xmax', 'ymax']`. The `is_mask` boolean will automatically route the data to the correct UI Tab (Box or Mask).
+Write its results as SAM3-style manifests with `sideseeing_tools.vision.results.save_segmentations`, or add a reader to `route_predictions` in `src/sideseeing_tools/dataviz/predictions.py` that returns, per frame, detections with a class name, scores, `[x_min, y_min, x_max, y_max]` boxes in source pixels and an optional mask.
