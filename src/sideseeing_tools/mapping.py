@@ -55,7 +55,7 @@ class MapMatcher:
             try:
                 # Need to pass radiuses to avoid match failures on noisy GPS?
                 # Using default settings for now
-                response = requests.get(url)
+                response = requests.get(url, timeout=30)
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("code") == "Ok" and "matchings" in data:
