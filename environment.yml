@@ -1,0 +1,16 @@
+# Host environment for research on utk-desktop-01.
+# Install CUDA PyTorch and the editable project with the commands in
+# docs/research-environment.md after creating this environment.
+name: sideseeing
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - ffmpeg
+  - geopandas
+  - shapely
+  - pillow
+  - requests
+  - jinja2
+  - scipy

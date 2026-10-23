@@ -58,7 +58,7 @@ dataset_root/                <-- Passed as: -i ./dataset_root
 │       └── route01_0002.jpg
 │
 └── preds/
-    ├── predictions.csv      <-- Global predictions file (Project Sidewalk format)
+    ├── predictions.csv      <-- Global predictions file 
     ├── sam3-crosswalk/      <-- Model-specific predictions
     │   ├── detections.csv
     │   └── route01-frames/

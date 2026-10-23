@@ -12,3 +12,6 @@ ignore
 venv
 repomix-**
 requirements.txt
+# Local model weights
+sam3-offline/
+*.safetensors
