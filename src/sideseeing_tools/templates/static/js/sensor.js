@@ -28,7 +28,7 @@ function initSensorSection(loadedSamplesData) {
         if (spinner) spinner.classList.remove('hidden');
         if (spinner) spinner.classList.add('flex');
 
-        fetch(`${jsonPath}?v=${Date.now()}`)
+        fetch(jsonPath)
             .then(response => {
                 if (!response.ok) throw new Error(`Failed to load ${jsonPath}`);
                 return response.json();

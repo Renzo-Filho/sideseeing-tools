@@ -62,6 +62,7 @@ function addFullscreenControl(mapInstance, wrapperId) {
 
         setTimeout(() => {
             mapInstance.invalidateSize();
+            // Recenter the map after fullscreen change
             if (mapInstance.recenter) {
                 mapInstance.recenter();
             }
@@ -70,6 +71,7 @@ function addFullscreenControl(mapInstance, wrapperId) {
 
     document.addEventListener('fullscreenchange', updateFullscreenState);
 
+    // Return a cleanup function
     return () => {
         document.removeEventListener('fullscreenchange', updateFullscreenState);
         if (mapInstance && fullscreenControl) {
@@ -115,6 +117,7 @@ function addRecenterControl(mapInstance, initialBounds) {
         }
     });
 
+    // Attach the recenter method to the map instance
     mapInstance.recenter = () => {
         if (initialBounds && initialBounds.isValid()) {
             mapInstance.flyToBounds(initialBounds, { padding: [20, 20] });

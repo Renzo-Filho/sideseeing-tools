@@ -5,30 +5,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let loadedWifiData = {};
     let loadedGeoData = {};
 
-    const analysisFiles = typeof ANALYSIS_FILES !== 'undefined' ? ANALYSIS_FILES : {};
-    const samplesData = typeof SAMPLES_DATA !== 'undefined' ? SAMPLES_DATA : [];
-
+    lucide.createIcons();
     initSummaryMap();
-    if (typeof initSidewalkAssessmentMap === 'function') {
-        initSidewalkAssessmentMap(analysisFiles);
-    }
-    renderTable(samplesData);
+    renderTable(SAMPLES_DATA);
     showSection('summary');
     
-    if (typeof initSensorSection === 'function') {
-        initSensorSection(loadedSamplesData);
-    }
-    if (typeof initWifiSection === 'function') {
-        initWifiSection(activeMaps, loadedWifiData);
-    }
-    if (typeof initGeoSection === 'function') {
-        initGeoSection(activeMaps, loadedGeoData);
-    }
-    if (typeof initializeSimpleSection === 'function') {
-        initializeSimpleSection('video');
-        initializeSimpleSection('cell');
-        initializeSimpleSection('anonym');
-    }
+    initSensorSection(loadedSamplesData);
+    initWifiSection(activeMaps, loadedWifiData);
+    initGeoSection(activeMaps, loadedGeoData);
+    initializeSimpleSection('video');
+    initializeSimpleSection('cell');
 
     // --- Sidebar and Menu Logic ---
     document.getElementById('sidebar-open-btn').addEventListener('click', toggleSidebar);
@@ -155,8 +141,8 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.appendChild(row);
         });
     
-        const totalSamples = typeof SAMPLES_DATA !== 'undefined' ? SAMPLES_DATA.length : data.length;
-        document.getElementById('resultCount').textContent = `Showing ${data.length} of ${totalSamples} samples`;
+        lucide.createIcons();
+        document.getElementById('resultCount').textContent = `Showing ${data.length} of ${SAMPLES_DATA.length} samples`;
     }
 
     function toggleSidebar() {
@@ -174,8 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function filterTable() {
         const term = document.getElementById('searchInput').value.toLowerCase();
-        const allSamples = typeof SAMPLES_DATA !== 'undefined' ? SAMPLES_DATA : [];
-        const filtered = allSamples.filter(sample => 
+        const filtered = SAMPLES_DATA.filter(sample => 
             sample.name.toLowerCase().includes(term) || 
             sample.location.toLowerCase().includes(term)
         );
@@ -183,5 +168,4 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     window.filterTable = filterTable;
-    lucide.createIcons();
 });

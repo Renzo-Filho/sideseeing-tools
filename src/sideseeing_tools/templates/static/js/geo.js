@@ -3,11 +3,12 @@ function initGeoSection(activeMaps, loadedGeoData) {
     const geoMapContainer = document.getElementById('geo-map-container');
     let geoSpinner = document.getElementById('geo-map-spinner');
     let geoPlaceholder = document.getElementById('geo-map-placeholder');
-    let geoMapDiv = document.getElementById('geo-map');
+    let geoMapDiv = document.getElementById('geo-map'); // Keep a reference to the original div
     let cleanupFullscreen;
 
     if (!geoSelect) return;
 
+    // Make the section findable by the section switcher
     geoMapContainer.closest('.section-content').dataset.mapId = 'geo-map';
 
     geoSelect.addEventListener('change', handleGeoSelectionChange);
@@ -25,7 +26,7 @@ function initGeoSection(activeMaps, loadedGeoData) {
         handleResetGeoView(false);
 
         if (loadedGeoData[jsonPath]) {
-            renderGeoMap(sampleName, loadedGeoData[jsonPath]);
+            renderGeoMap(sampleName, loadedGeoData[jsonPath].data);
             return;
         }
 
@@ -35,15 +36,15 @@ function initGeoSection(activeMaps, loadedGeoData) {
         }
         if (geoPlaceholder) geoPlaceholder.style.display = 'none';
 
-        fetch(`${jsonPath}?v=${Date.now()}`)
+        fetch(jsonPath)
             .then(response => {
                 if (!response.ok) throw new Error(`Failed to load ${jsonPath}`);
                 return response.json();
             })
-            .then(data => {
-                loadedGeoData[jsonPath] = data;
+            .then(geoData => {
+                loadedGeoData[jsonPath] = { name: sampleName, data: geoData };
                 if (geoSpinner) geoSpinner.classList.add('hidden');
-                renderGeoMap(sampleName, data);
+                renderGeoMap(sampleName, geoData);
             })
             .catch(err => {
                 console.error("Error loading GEO data:", err);
@@ -58,6 +59,7 @@ function initGeoSection(activeMaps, loadedGeoData) {
             cleanupFullscreen = null;
         }
 
+        // Use a consistent key for the geo map
         const map = activeMaps['geo-map'];
         if (map) {
             map.remove();
@@ -70,23 +72,16 @@ function initGeoSection(activeMaps, loadedGeoData) {
 
         if (fullReset) {
             geoSelect.value = '';
-            if (geoPlaceholder) {
-                geoPlaceholder.innerHTML = `<div class="text-center text-gray-400"><i data-lucide="map-pin" class="mx-auto h-12 w-12"></i><p class="mt-2 text-lg">Select a sample to get started.</p></div>`;
-                geoPlaceholder.style.display = 'block';
-            }
+            if (geoPlaceholder) geoPlaceholder.style.display = 'block';
             if (geoSpinner) geoSpinner.classList.add('hidden');
         }
     }
     
-    function renderGeoMap(sampleName, data) {
-        const { center, path: originalPath, corrected_path: correctedPath } = data;
+    function renderGeoMap(sampleName, geoData) {
+        const { center, path } = geoData;
 
-        if (!originalPath || originalPath.length === 0) {
-            if (geoPlaceholder) {
-                geoPlaceholder.innerHTML = `<div class="text-center text-gray-400"><i data-lucide="circle-slash-2" class="mx-auto h-12 w-12"></i><p class="mt-2 text-lg">No route data found for ${sampleName}.</p></div>`;
-                geoPlaceholder.style.display = 'block';
-                if (window.lucide) window.lucide.createIcons();
-            }
+        if (!path || path.length === 0) {
+            alert(`No route data found for ${sampleName}.`);
             return;
         }
 
@@ -103,33 +98,11 @@ function initGeoSection(activeMaps, loadedGeoData) {
             maxZoom: 22
         }).addTo(map);
 
-        const bounds = L.latLngBounds();
-        const overlayLayers = {};
+        const polyline = L.polyline(path, { color: 'blue', opacity: 0.6, weight: 2 }).addTo(map);
+        const bounds = polyline.getBounds();
 
-        const originalPolyline = L.polyline(originalPath, { color: '#dc3545', opacity: 0.8, weight: 4 });
-        overlayLayers["Phone GPS"] = originalPolyline;
-        bounds.extend(originalPolyline.getBounds());
-        originalPolyline.addTo(map);
-
-        let startPoint, endPoint;
-
-        if (correctedPath && correctedPath.length > 0) {
-            const correctedPolyline = L.polyline(correctedPath, { color: '#3388ff', opacity: 0.8, weight: 4 });
-            overlayLayers["Corrected GPS"] = correctedPolyline;
-            bounds.extend(correctedPolyline.getBounds());
-            correctedPolyline.addTo(map);
-            startPoint = correctedPath[0];
-            endPoint = correctedPath[correctedPath.length - 1];
-        } else {
-            startPoint = originalPath[0];
-            endPoint = originalPath[originalPath.length - 1];
-        }
-
-        L.marker(startPoint).addTo(map).bindPopup('<b>Start</b>');
-        L.marker(endPoint).addTo(map).bindPopup('<b>End</b>');
-
-        // Move legend to the bottom right
-        L.control.layers(null, overlayLayers, { collapsed: false, position: 'bottomright' }).addTo(map);
+        L.marker(path[0]).addTo(map).bindPopup('<b>Start</b>');
+        L.marker(path[path.length - 1]).addTo(map).bindPopup('<b>End</b>');
 
         map.fitBounds(bounds, { padding: [20, 20] });
 
