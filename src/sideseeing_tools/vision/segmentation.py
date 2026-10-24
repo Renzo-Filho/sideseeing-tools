@@ -62,8 +62,27 @@ class Sam3Segmenter:
 
         Empty masks have shape (0, height, width); decoding and inference errors raise.
         """
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError('Prompt must be non-empty text')
+        return self.segment_prompts(
+            image_paths, [prompt], batch_size=batch_size, threshold=threshold, mask_threshold=mask_threshold
+        )
+
+    def segment_prompts(
+        self,
+        image_paths,
+        prompts,
+        batch_size=BATCH_SIZE,
+        threshold=SCORE_THRESHOLD,
+        mask_threshold=MASK_THRESHOLD,
+    ):
+        """Like segment(), for several prompts: one record per image and prompt, in image order.
+
+        Each batch of images is encoded once and every prompt runs on that encoding. The image
+        encoder is most of SAM3's cost, so k prompts cost far less than k calls to segment().
+        """
+        if not prompts or any(not isinstance(prompt, str) or not prompt.strip() for prompt in prompts):
+            raise ValueError('Prompts must be non-empty text')
+        if len(set(prompts)) != len(prompts):
+            raise ValueError('Prompts must be unique')
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
             raise ValueError('Batch size must be a positive integer')
         if any(
@@ -76,6 +95,7 @@ class Sam3Segmenter:
         if len({path.resolve() for path in paths}) != len(paths):
             raise ValueError('Image paths must be unique')
 
+        parameters = dict(self.provenance, threshold=threshold, mask_threshold=mask_threshold)
         records = []
 
         for start in range(0, len(paths), batch_size):
@@ -86,49 +106,60 @@ class Sam3Segmenter:
                 with self.image_module.open(path) as image:
                     images.append(image.convert('RGB'))
 
-            inputs = self.processor(
-                images=images, text=[prompt] * len(images), return_tensors='pt'
-            ).to(self.device)
+            pixels = self.processor(images=images, return_tensors='pt').to(self.device)
 
             with self.torch.inference_mode():
-                outputs = self.model(**inputs)
+                vision_embeds = self.model.get_vision_features(pixel_values=pixels.pixel_values)
 
-            results = self.processor.post_process_instance_segmentation(
-                outputs,
-                threshold=threshold,
-                mask_threshold=mask_threshold,
-                target_sizes=[image.size[::-1] for image in images],
-            )
+            by_image = [[] for _ in batch]
 
-            if len(results) != len(batch):
-                raise ValueError('Model returned an incomplete batch')
+            for prompt in prompts:
+                text = self.processor(text=[prompt] * len(images), return_tensors='pt').to(self.device)
 
-            for path, image, result in zip(batch, images, results):
-                masks = result['masks'].detach().cpu().numpy().astype(bool)
-                height, width = image.size[::-1]
-
-                if masks.size == 0:
-                    masks = np.empty((0, height, width), dtype=bool)
-
-                scores = result['scores'].detach().cpu().numpy()
-                boxes = result['boxes'].detach().cpu().numpy().reshape(-1, 4)
-
-                if masks.shape != (len(scores), height, width) or len(boxes) != len(scores):
-                    raise ValueError('Inconsistent segmentation result dimensions')
-                if not np.isfinite(scores).all() or not np.isfinite(boxes).all():
-                    raise ValueError('Non-finite segmentation results')
-
-                records.append(
-                    dict(
-                        image_path=str(path.resolve()),
-                        prompt=prompt,
-                        masks=masks,
-                        scores=scores,
-                        boxes=boxes,
-                        parameters=dict(
-                            self.provenance, threshold=threshold, mask_threshold=mask_threshold
-                        ),
+                with self.torch.inference_mode():
+                    outputs = self.model(
+                        vision_embeds=vision_embeds, input_ids=text.input_ids, attention_mask=text.attention_mask
                     )
+
+                results = self.processor.post_process_instance_segmentation(
+                    outputs,
+                    threshold=threshold,
+                    mask_threshold=mask_threshold,
+                    target_sizes=[image.size[::-1] for image in images],
                 )
 
+                if len(results) != len(batch):
+                    raise ValueError('Model returned an incomplete batch')
+
+                for index, (path, image, result) in enumerate(zip(batch, images, results)):
+                    by_image[index].append(self._record(path, image, prompt, result, parameters))
+
+            for image_records in by_image:
+                records.extend(image_records)
+
         return records
+
+    @staticmethod
+    def _record(path, image, prompt, result, parameters):
+        masks = result['masks'].detach().cpu().numpy().astype(bool)
+        height, width = image.size[::-1]
+
+        if masks.size == 0:
+            masks = np.empty((0, height, width), dtype=bool)
+
+        scores = result['scores'].detach().cpu().numpy()
+        boxes = result['boxes'].detach().cpu().numpy().reshape(-1, 4)
+
+        if masks.shape != (len(scores), height, width) or len(boxes) != len(scores):
+            raise ValueError('Inconsistent segmentation result dimensions')
+        if not np.isfinite(scores).all() or not np.isfinite(boxes).all():
+            raise ValueError('Non-finite segmentation results')
+
+        return dict(
+            image_path=str(path.resolve()),
+            prompt=prompt,
+            masks=masks,
+            scores=scores,
+            boxes=boxes,
+            parameters=parameters,
+        )

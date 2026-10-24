@@ -1,5 +1,7 @@
 import contextlib
 import json
+import shutil
+from pathlib import Path
 from types import SimpleNamespace
 
 import cv2
@@ -103,7 +105,7 @@ def test_lossless_export_and_no_overwrite(tmp_path, image_path):
         save_redacted_image(image_path, masks, output)
 
 
-def test_sam3_batch_conversion_without_weights(image_path):
+def test_sam3_batch_conversion_without_weights(image_path, tmp_path):
     class Tensor:
         def __init__(self, values):
             self.values = np.asarray(values)
@@ -114,29 +116,43 @@ def test_sam3_batch_conversion_without_weights(image_path):
         def numpy(self):
             return self.values
     class Inputs(dict):
+        __getattr__ = dict.get
         def to(self, device):
             return self
     class Processor:
         def __call__(self, **kwargs):
-            assert kwargs['text'] == ['face']
-            return Inputs()
+            assert ('images' in kwargs) != ('text' in kwargs)
+            return Inputs(pixel_values='pixels') if 'images' in kwargs else Inputs(input_ids=kwargs['text'])
         def post_process_instance_segmentation(self, outputs, **kwargs):
-            assert kwargs['target_sizes'] == [(12, 16)]
-            return [dict(masks=Tensor(np.zeros((0, 12, 16))),
-                         scores=Tensor([]), boxes=Tensor(np.empty((0, 4))))]
+            assert kwargs['target_sizes'] == [(12, 16)] * len(outputs)
+            return [dict(masks=Tensor(np.zeros((len(prompt), 12, 16))), scores=Tensor([0.9] * len(prompt)),
+                         boxes=Tensor(np.zeros((len(prompt), 4)))) for prompt in outputs]
+    encodings = []
     model = segmentation.Sam3Segmenter.__new__(segmentation.Sam3Segmenter)
     model.image_module = Image
     model.device = 'cpu'
     model.torch = SimpleNamespace(inference_mode=contextlib.nullcontext)
-    model.model = lambda **kwargs: None
+    model.model = lambda vision_embeds, input_ids, attention_mask: input_ids
+    model.model.get_vision_features = lambda pixel_values: encodings.append(pixel_values)
     model.processor = Processor()
     model.provenance = {'revision': segmentation.MODEL_REVISION}
+
     result = model.segment([image_path], 'face')[0]
-    assert result['masks'].shape == (0, 12, 16)
-    assert result['boxes'].shape == (0, 4)
-    assert result['masks'].dtype == np.bool_
+    assert result['masks'].shape == (4, 12, 16) and result['masks'].dtype == np.bool_
+    assert result['boxes'].shape == (4, 4)
+
+    other = tmp_path / 'other.png'
+    shutil.copy(image_path, other)
+    encodings.clear()
+    records = model.segment_prompts([image_path, other], ['face', 'pole'], batch_size=2)
+    assert encodings == ['pixels']
+    assert [(Path(r['image_path']).name, r['prompt'], len(r['scores'])) for r in records] == [
+        (image_path.name, 'face', 4), (image_path.name, 'pole', 4), ('other.png', 'face', 4), ('other.png', 'pole', 4)]
+
     with pytest.raises(ValueError, match='unique'):
         model.segment([image_path, image_path], 'face')
+    with pytest.raises(ValueError, match='unique'):
+        model.segment_prompts([image_path], ['face', 'face'])
 
 
 def test_model_requires_pinned_revision():

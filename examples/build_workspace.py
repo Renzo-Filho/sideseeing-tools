@@ -14,7 +14,7 @@ import torch
 
 from sideseeing_tools import SideSeeingDS, SideSeeingWorkspace
 from sideseeing_tools.vision.segmentation import MODEL_REVISION, Sam3Segmenter
-from sideseeing_tools.workspace import release_gpu_memory
+from sideseeing_tools.workspace import REDACTION_PROMPTS, release_gpu_memory
 
 
 def stage(name, function, *args, **kwargs):
@@ -38,6 +38,8 @@ def main():
     parser.add_argument("--whisper", metavar="MODEL", help="Also transcribe the audio with this Whisper model, e.g. small.")
     parser.add_argument("--language", help="Spoken language for Whisper, e.g. en or pt; detected when omitted.")
     parser.add_argument("--whisper-prompt", help="Text Whisper sees before the audio, e.g. the audit vocabulary.")
+    parser.add_argument("--whisper-name", help="Transcript folder name, to keep variants apart; default whisper-MODEL.")
+    parser.add_argument("--vad", action="store_true", help="Transcribe only the speech found by Silero VAD.")
     parser.add_argument("--skip-map-matching", action="store_true", help="Do not call the public OSRM server.")
     parser.add_argument("--report", action="store_true", help="Also write the static report to report/.")
     args = parser.parse_args()
@@ -50,9 +52,11 @@ def main():
 
     if args.prompts or args.anonymize:
         segmenter = Sam3Segmenter(args.model, revision=MODEL_REVISION, local_files_only=args.model != "facebook/sam3")
+        private = REDACTION_PROMPTS if args.anonymize else ()
+        stage("segment", workspace.generate_segmentation, ds, args.prompts, batch_size=args.batch_size,
+              segmenter=segmenter, private_prompts=private)
         if args.anonymize:
-            stage("redact frames", workspace.anonymize_frames, ds, batch_size=args.batch_size, segmenter=segmenter)
-        stage("segment", workspace.generate_segmentation, ds, args.prompts, batch_size=args.batch_size, segmenter=segmenter)
+            stage("redact frames", workspace.anonymize_frames, ds, prompts=private, segmenter=segmenter)
         del segmenter
         release_gpu_memory()
 
@@ -62,7 +66,8 @@ def main():
 
     if args.whisper:
         options = dict(initial_prompt=args.whisper_prompt) if args.whisper_prompt else {}
-        stage("transcribe", workspace.transcribe, ds, model_name=args.whisper, language=args.language, **options)
+        stage("transcribe", workspace.transcribe, ds, model_name=args.whisper, language=args.language,
+              name=args.whisper_name, vad=args.vad, **options)
     if args.report:
         stage("report", workspace.generate_report)
 

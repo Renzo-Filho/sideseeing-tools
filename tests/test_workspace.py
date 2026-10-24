@@ -24,18 +24,18 @@ class FakeSegmenter:
     def __init__(self):
         self.calls = []
 
-    def segment(self, image_paths, prompt, batch_size=1):
-        self.calls.append((prompt, len(image_paths)))
+    def segment_prompts(self, image_paths, prompts, batch_size=1):
+        self.calls.append((tuple(prompts), len(image_paths)))
         records = []
 
         for path in map(Path, image_paths):
             height, width = cv2.imread(str(path)).shape[:2]
             masks = np.zeros((1, height, width), dtype=bool)
             masks[0, :10, :20] = True
-            records.append(dict(
+            records.extend(dict(
                 image_path=str(path.resolve()), prompt=prompt, masks=masks,
                 scores=np.array([0.9]), boxes=np.array([[0.0, 0.0, 19.0, 9.0]]), parameters={},
-            ))
+            ) for prompt in prompts)
 
         return records
 
@@ -114,7 +114,7 @@ def test_segmentation_resumes_missing_chunks_and_feeds_events(dataset, extracted
     segmenter.calls.clear()
     extracted.generate_segmentation(dataset, ['curb ramp'], segmenter=segmenter, chunk_size=2)
 
-    assert segmenter.calls == [('curb ramp', 2)]
+    assert segmenter.calls == [(('curb ramp',), 2)]
 
     extracted.generate_sidewalk_assessment_events(dataset)
     events = pd.read_csv(extracted.geomatching_dir / 'map_events.csv')
@@ -123,6 +123,22 @@ def test_segmentation_resumes_missing_chunks_and_feeds_events(dataset, extracted
         ['route-a', 'curb ramp', 'route-a_00000.jpg', 'route-a_02400.jpg'],
         ['route-b', 'curb ramp', 'route-b_00000.jpg', 'route-b_02400.jpg'],
     ]
+
+
+def test_prompts_share_one_pass_and_only_missing_prompts_run(dataset, extracted):
+    segmenter = FakeSegmenter()
+    route = [dataset.instances['route-a']]
+    extracted.generate_segmentation(dataset, ['bench', 'bollard'], instances=route, segmenter=segmenter, chunk_size=5)
+    extracted.generate_segmentation(dataset, ['bench', 'bollard', 'tree'], instances=route, segmenter=segmenter,
+                                    chunk_size=5)
+
+    assert segmenter.calls == [(('bench', 'bollard'), 5), (('tree',), 5)]
+    for slug in ['bench', 'bollard', 'tree']:
+        manifest = json.loads((extracted.preds_dir / 'sam3' / slug / 'route-a' / 'chunk-0000' / 'manifest.json').read_text())
+        assert {frame['prompt'] for frame in manifest['frames']} == {slug} and len(manifest['frames']) == 5
+
+    with pytest.raises(ValueError, match='distinct'):
+        extracted.generate_segmentation(dataset, ['Bench', 'bench'], segmenter=segmenter)
 
 
 def test_load_detections_prefers_manifests_over_legacy_csv(dataset, extracted):
@@ -153,6 +169,23 @@ def test_anonymization_writes_copies_and_keeps_sources(dataset, extracted):
     assert sorted(path.name for path in list_frames(redacted_dir)) == sorted(before)
     assert {frame['masked_pixels'] for frame in record['frames']} == {200}
     assert record['prompts'] == ['face', 'license plate'] and record['model'] == {'model_id': 'fake'}
+    assert (extracted.private_preds_dir / 'face' / 'route-b' / 'chunk-0000' / 'manifest.json').exists()
+    assert not (extracted.preds_dir / 'sam3' / 'face').exists()
+
+
+def test_anonymization_reuses_saved_masks(dataset, tmp_path):
+    ws = SideSeeingWorkspace(tmp_path)
+    ws.setup_data_directory(dataset)
+    ws.extract_frames(dataset, extract_step=STEP)
+    segmenter = FakeSegmenter()
+    ws.generate_segmentation(dataset, ['sidewalk'], segmenter=segmenter, private_prompts=['face', 'license plate'])
+    segmenter.calls.clear()
+
+    ws.anonymize_frames(dataset, segmenter=segmenter)
+
+    assert segmenter.calls == []
+    assert sorted(path.name for path in ws.redacted_dir.iterdir()) == ['route-a-frames', 'route-b-frames']
+    assert set(ws.load_detections()['prompt']) == {'sidewalk'}
 
 
 class FakeWhisper:
@@ -163,7 +196,7 @@ class FakeWhisper:
         self.error = error
 
     def transcribe(self, path, language=None, **options):
-        self.calls.append(Path(path).parent.name)
+        self.calls.append(options.get('clip_timestamps') or Path(path).parent.name)
         if self.error:
             raise self.error
         segment = dict(start=1.0, end=2.5, text=' Curb ramp here.', avg_logprob=-0.2, no_speech_prob=0.1)
@@ -178,8 +211,10 @@ def test_transcription_writes_timed_segments_once(dataset, tmp_path):
 
     assert whisper.calls == ['route-a', 'route-b']
     assert record['media_start_time'] == '2024-01-06T14:59:48.138000'
-    assert record['segments'] == [dict(start=1.0, end=2.5, text='Curb ramp here.', avg_logprob=-0.2, no_speech_prob=0.1)]
-    assert record['language'] == 'en' and record['parameters'] == dict(condition_on_previous_text=False, language=None)
+    assert record['segments'] == [dict(start=1.0, end=2.5, text='Curb ramp here.', avg_logprob=-0.2, no_speech_prob=0.1,
+                                       compression_ratio=None)]
+    assert record['language'] == 'en'
+    assert record['parameters'] == dict(condition_on_previous_text=False, language=None, vad=False)
 
     whisper.calls.clear()
     ws.transcribe(dataset, model_name='tiny', model=whisper)
@@ -197,10 +232,24 @@ def test_transcription_skips_missing_audio_but_not_other_errors(dataset, tmp_pat
         ws.transcribe(dataset, model_name='tiny', model=FakeWhisper(RuntimeError('CUDA out of memory')))
 
 
+def test_transcription_variant_with_speech_detection(dataset, tmp_path, monkeypatch):
+    ws = SideSeeingWorkspace(tmp_path)
+    regions = {'route-a': [(1.0, 2.5), (4.0, 6.0)], 'route-b': []}
+    monkeypatch.setattr(workspace_module, 'speech_regions', lambda video: ('audio', regions[Path(video).parent.name]))
+    whisper = FakeWhisper()
+
+    ws.transcribe(dataset, model_name='tiny', model=whisper, name='turbo-vad', vad=True)
+    read = lambda route: json.loads((ws.transcripts_dir / 'turbo-vad' / f'{route}.json').read_text())
+
+    assert whisper.calls == [[1.0, 2.5, 4.0, 6.0]]
+    assert read('route-a')['speech_regions'] == [[1.0, 2.5], [4.0, 6.0]] and read('route-a')['parameters']['vad']
+    assert read('route-b')['segments'] == []
+
+
 def test_build_workspace_runs_each_stage_once(dataset, tmp_path, monkeypatch):
     ws = SideSeeingWorkspace(tmp_path)
     calls = []
-    stages = ['setup_data_directory', 'extract_frames', 'anonymize_frames', 'generate_segmentation',
+    stages = ['setup_data_directory', 'extract_frames', 'generate_segmentation', 'anonymize_frames',
               'generate_map_matched_routes', 'generate_sidewalk_assessment_events', 'transcribe']
     for stage in stages:
         monkeypatch.setattr(ws, stage, lambda *args, stage=stage, **kwargs: calls.append(stage))

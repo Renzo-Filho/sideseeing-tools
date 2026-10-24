@@ -26,6 +26,8 @@ FRAME_NAME = re.compile(r'_(\d+)(_ms)?\.(?:jpg|png)$')
 CHUNK_SIZE = 16
 # Longest event, in extracted frames. Earlier versions derived it from a 30 fps default.
 MAX_FRAMES_PER_EVENT = 45
+# What anonymize_frames obscures by default.
+REDACTION_PROMPTS = ("face", "license plate")
 
 
 def prompt_slug(prompt):
@@ -68,6 +70,25 @@ def read_frames_record(frames_dir):
 def list_frames(frames_dir):
     frames_dir = Path(frames_dir)
     return sorted(frames_dir.glob('*.jpg')) + sorted(frames_dir.glob('*.png'))
+
+
+def segment_prompts(segmenter, frames, prompts, batch_size=1):
+    """Records for every frame and prompt, encoding each frame once when the segmenter supports it."""
+    if hasattr(segmenter, "segment_prompts"):
+        return segmenter.segment_prompts(frames, prompts, batch_size=batch_size)
+    return [record for prompt in prompts for record in segmenter.segment(frames, prompt, batch_size=batch_size)]
+
+
+def speech_regions(video, sampling_rate=16000):
+    """(audio, [(start_s, end_s), ...]): the video's 16 kHz audio and its speech regions found by Silero VAD."""
+    import torch
+    import whisper
+    from silero_vad import get_speech_timestamps, load_silero_vad
+
+    audio = whisper.load_audio(str(video), sr=sampling_rate)
+    stamps = get_speech_timestamps(torch.from_numpy(audio), load_silero_vad(), sampling_rate=sampling_rate,
+                                   return_seconds=True)
+    return audio, [(float(stamp["start"]), float(stamp["end"])) for stamp in stamps]
 
 
 def extract_route_frames(video_path, frames_dir, prefix, step):
@@ -125,6 +146,7 @@ class SideSeeingWorkspace:
         self.frames_dir = self.output_dir / "frames"
         self.redacted_dir = self.output_dir / "frames-redacted"
         self.preds_dir = self.output_dir / "preds"
+        self.private_preds_dir = self.preds_dir / "private"
         self.geomatching_dir = self.output_dir / "geomatching"
         self.routes_gpkg_dir = self.geomatching_dir / "routes_gpkg"
         self.transcripts_dir = self.output_dir / "transcripts"
@@ -208,65 +230,97 @@ class SideSeeingWorkspace:
         return fps
 
     def generate_segmentation(self, dataset: SideSeeingDS, prompts: list, instances: list = None,
-                              batch_size: int = 1, segmenter=None, chunk_size: int = CHUNK_SIZE):
+                              batch_size: int = 1, segmenter=None, chunk_size: int = CHUNK_SIZE,
+                              private_prompts=()):
         """
         Runs SAM3 on the extracted frames for each prompt and saves instance masks, boxes,
         scores, timestamps and model provenance to preds/sam3/<prompt>/<route>/chunk-NNNN/.
+        `private_prompts` (faces, license plates) are saved to preds/private/ instead, which the
+        viewer, events and report never read; anonymize_frames uses them.
 
-        Each chunk is published only when complete, so an interrupted run resumes from the
-        first missing chunk. Pass a Sam3Segmenter to choose the model or a local checkpoint.
-        Requires `pip install sideseeing-tools[vision]` for the default segmenter.
+        All prompts missing from a chunk run on one encoding of each frame, so adding prompts
+        costs far less than a separate run per prompt. Each chunk is published only when
+        complete, so an interrupted run resumes from the first missing chunk, and prompts that
+        already have a chunk are not run again. Pass a Sam3Segmenter to choose the model or a
+        local checkpoint. Requires `pip install sideseeing-tools[vision]` for the default segmenter.
         """
         from sideseeing_tools.vision.results import save_segmentations
 
+        roots = {prompt: self.preds_dir / "sam3" for prompt in prompts or []}
+        roots.update({prompt: self.private_preds_dir for prompt in private_prompts})
+        prompts = list(roots)
+
         if not prompts:
             return
+        if len({prompt_slug(prompt) for prompt in prompts}) != len(prompts):
+            raise ValueError("Prompts must have distinct folder names")
 
         segmenter = self._segmenter(segmenter)
 
-        for prompt in prompts:
-            for instance in instances or dataset.iterator:
-                frames = self._route_frames(instance.name)
-                fps = self._route_fps(instance)
-                route_dir = self.preds_dir / "sam3" / prompt_slug(prompt) / instance.name
+        for instance in instances or dataset.iterator:
+            frames = self._route_frames(instance.name)
+            fps = self._route_fps(instance)
 
-                for start in range(0, len(frames), chunk_size):
-                    destination = route_dir / f"chunk-{start // chunk_size:04d}"
+            for start in range(0, len(frames), chunk_size):
+                chunk_name = f"chunk-{start // chunk_size:04d}"
+                destinations = {
+                    prompt: roots[prompt] / prompt_slug(prompt) / instance.name / chunk_name for prompt in prompts
+                }
+                missing = [prompt for prompt, path in destinations.items() if not (path / "manifest.json").exists()]
 
-                    if (destination / "manifest.json").exists():
-                        continue
+                if not missing:
+                    continue
 
-                    chunk = frames[start:start + chunk_size]
-                    print(f"[Workspace] Segmenting {len(chunk)} frames of {instance.name} with prompt '{prompt}'...")
-                    timestamps = [frame_timestamp(path.name, fps) for path in chunk]
+                chunk = frames[start:start + chunk_size]
+                print(f"[Workspace] Segmenting {len(chunk)} frames of {instance.name} ({chunk_name}) "
+                      f"with {len(missing)} prompt(s)...")
+                timestamps = [frame_timestamp(path.name, fps) for path in chunk]
+                records = segment_prompts(segmenter, chunk, missing, batch_size)
+
+                for prompt in missing:
                     save_segmentations(
-                        segmenter.segment(chunk, prompt, batch_size=batch_size),
-                        destination,
+                        [record for record in records if record["prompt"] == prompt],
+                        destinations[prompt],
                         source_id=instance.name,
                         timestamps_s=None if None in timestamps else timestamps,
                     )
 
-    def anonymize_frames(self, dataset: SideSeeingDS, instances: list = None, prompts=("face", "license plate"),
+    def _saved_masks(self, route, prompt, chunk_index, frames):
+        """Instance masks of one chunk, as saved by generate_segmentation, checked against the frames."""
+        from sideseeing_tools.vision.results import load_segmentation
+
+        manifest = self.private_preds_dir / prompt_slug(prompt) / route / f"chunk-{chunk_index:04d}" / "manifest.json"
+        return [load_segmentation(manifest, index, path)["masks"] for index, path in enumerate(frames)]
+
+    def anonymize_frames(self, dataset: SideSeeingDS, instances: list = None, prompts=REDACTION_PROMPTS,
                          mode: str = "blur", batch_size: int = 1, segmenter=None, chunk_size: int = CHUNK_SIZE):
         """
         Writes redacted copies of the extracted frames to frames-redacted/<route>-frames/,
         obscuring SAM3 masks for `prompts`. Source frames are never modified.
 
-        Copies keep the source format, so JPEG frames are re-encoded. The masks are not
-        guaranteed to be complete: review the output before treating it as anonymous.
+        The masks come from preds/private/<prompt>/; prompts not segmented yet are segmented first,
+        so passing them as `private_prompts` to generate_segmentation together with the analysis
+        prompts encodes each frame only once. Copies keep the source format, so JPEG frames are re-encoded. The masks
+        are not guaranteed to be complete: review the output before treating it as anonymous.
         """
         from sideseeing_tools.privacy.redaction import redact_image
 
+        instances = list(instances or dataset.iterator)
+        pending = [
+            instance for instance in instances
+            if not (self.redacted_dir / f"{instance.name}-frames").exists() and self._route_frames(instance.name)
+        ]
+
+        if not pending:
+            return
+
         segmenter = self._segmenter(segmenter)
+        self.generate_segmentation(dataset, [], pending, batch_size, segmenter, chunk_size, private_prompts=prompts)
         self.redacted_dir.mkdir(exist_ok=True)
 
-        for instance in instances or dataset.iterator:
+        for instance in pending:
             destination = self.redacted_dir / f"{instance.name}-frames"
             frames = self._route_frames(instance.name)
-
-            if destination.exists() or not frames:
-                continue
-
             print(f"[Workspace] Redacting {len(frames)} frames of {instance.name}...")
 
             with tempfile.TemporaryDirectory(prefix=".redaction-", dir=self.redacted_dir) as temporary:
@@ -276,15 +330,11 @@ class SideSeeingWorkspace:
 
                 for start in range(0, len(frames), chunk_size):
                     chunk = frames[start:start + chunk_size]
-                    masks = {str(path.resolve()): [] for path in chunk}
+                    saved = [self._saved_masks(instance.name, prompt, start // chunk_size, chunk) for prompt in prompts]
 
-                    for prompt in prompts:
-                        for result in segmenter.segment(chunk, prompt, batch_size=batch_size):
-                            masks[result["image_path"]].append(result["masks"])
-
-                    for path in chunk:
+                    for index, path in enumerate(chunk):
                         image = cv2.imread(str(path))
-                        stack = masks[str(path.resolve())]
+                        stack = [masks[index] for masks in saved if len(masks[index])]
                         combined = np.concatenate(stack) if stack else np.zeros((0, *image.shape[:2]), dtype=bool)
 
                         if not cv2.imwrite(str(staging / path.name), redact_image(image, combined, mode=mode)):
@@ -495,18 +545,21 @@ class SideSeeingWorkspace:
             print("[Workspace] No events generated.")
 
     def transcribe(self, dataset: SideSeeingDS, instances: list = None, model_name: str = "small",
-                   language: str = None, model=None, **options):
+                   language: str = None, model=None, name: str = None, vad: bool = False, **options):
         """
         Transcribes the audio of each route's video with Whisper and writes timestamped segments
-        to transcripts/whisper-<model_name>/<route>.json. Segment times are seconds from the start
-        of the video; add them to media_start_time (UTC) to align them with GPS and frames.
+        to transcripts/<name>/<route>.json, where `name` defaults to whisper-<model_name>. Segment
+        times are seconds from the start of the video; add them to media_start_time (UTC) to align
+        them with GPS and frames.
 
-        Existing transcripts are kept. Videos without readable audio are skipped with a warning.
+        With `vad=True`, Silero VAD finds the speech first and Whisper transcribes only those
+        regions, which avoids most text invented over silence and street noise. Existing
+        transcripts are kept. Videos without readable audio are skipped with a warning.
         `options` go to Whisper's transcribe(); condition_on_previous_text defaults to False, which
         reduces repeated text across long silences. Pass `model` to reuse a loaded Whisper model.
         Requires `pip install sideseeing-tools[transcription]` and FFmpeg for the default model.
         """
-        output_dir = self.transcripts_dir / f"whisper-{model_name}"
+        output_dir = self.transcripts_dir / (name or f"whisper-{model_name}")
         output_dir.mkdir(parents=True, exist_ok=True)
         options.setdefault("condition_on_previous_text", False)
 
@@ -520,9 +573,16 @@ class SideSeeingWorkspace:
             if destination.exists() or instance.video is None:
                 continue
 
-            print(f"[Workspace] Transcribing {instance.name} with Whisper {model_name}...")
+            print(f"[Workspace] Transcribing {instance.name} into {output_dir.name}...")
             try:
-                result = model.transcribe(str(instance.video), language=language, **options)
+                audio, regions, clips = str(instance.video), None, {}
+                if vad:
+                    audio, regions = speech_regions(instance.video)
+                    clips = dict(clip_timestamps=[time for region in regions for time in region])
+                if regions == []:
+                    result = dict(language=language, segments=[])
+                else:
+                    result = model.transcribe(audio, language=language, **clips, **options)
             except RuntimeError as error:
                 if "Failed to load audio" not in str(error):
                     raise
@@ -536,10 +596,12 @@ class SideSeeingWorkspace:
                 media_start_time=instance.media_start_time.isoformat(),
                 model=model_name,
                 language=result.get("language"),
-                parameters=dict(options, language=language),
+                parameters=dict(options, language=language, vad=vad),
+                speech_regions=regions,
                 segments=[
                     dict(start=float(segment["start"]), end=float(segment["end"]), text=segment["text"].strip(),
-                         avg_logprob=segment.get("avg_logprob"), no_speech_prob=segment.get("no_speech_prob"))
+                         avg_logprob=segment.get("avg_logprob"), no_speech_prob=segment.get("no_speech_prob"),
+                         compression_ratio=segment.get("compression_ratio"))
                     for segment in result["segments"]
                 ],
             )
@@ -575,11 +637,12 @@ class SideSeeingWorkspace:
         self.setup_data_directory(dataset, use_symlinks)
         self.extract_frames(dataset, extract_step)
 
+        private = REDACTION_PROMPTS if anonymize else ()
         if prompts or anonymize:
             segmenter = self._segmenter(segmenter)
+        self.generate_segmentation(dataset, prompts, segmenter=segmenter, private_prompts=private)
         if anonymize:
-            self.anonymize_frames(dataset, segmenter=segmenter)
-        self.generate_segmentation(dataset, prompts, segmenter=segmenter)
+            self.anonymize_frames(dataset, prompts=private, segmenter=segmenter)
 
         self.generate_map_matched_routes(dataset)
         self.generate_sidewalk_assessment_events(dataset)

@@ -24,17 +24,18 @@ workspace/
 │       ├── route01_00000.jpg
 │       └── redaction.json             prompts, mode, model, masked pixels per frame
 ├── preds/
-│   └── sam3/
-│       └── curb-ramp/                 one folder per prompt
-│           └── route01/
-│               └── chunk-0000/
-│                   ├── manifest.json  prompt, model revision, source hashes, timestamp of each frame
-│                   └── frame-000000.npz  masks, boxes and scores of every detected instance
+│   ├── sam3/
+│   │   └── curb-ramp/                 one folder per prompt
+│   │       └── route01/
+│   │           └── chunk-0000/
+│   │               ├── manifest.json  prompt, model revision, source hashes, timestamp of each frame
+│   │               └── frame-000000.npz  masks, boxes and scores of every detected instance
+│   └── private/                       face and license plate masks for redaction; never shown or used for events
 ├── geomatching/
 │   ├── routes_gpkg/route01.gpkg       OSRM map-matched route
 │   └── map_events.csv                 sidewalk events built from detections and GPS
 ├── transcripts/
-│   └── whisper-small/route01.json     timed Whisper segments, after transcribe()
+│   └── whisper-small/route01.json     timed Whisper segments, after transcribe(); one folder per variant
 └── report/                            static report, after generate_report()
 ```
 
@@ -64,19 +65,21 @@ segmenter = Sam3Segmenter()  # or Sam3Segmenter('/path/to/sam3-offline', MODEL_R
 
 workspace.setup_data_directory(ds)
 workspace.extract_frames(ds, extract_step=30, instances=routes)
-workspace.anonymize_frames(ds, instances=routes, segmenter=segmenter)          # optional
-workspace.generate_segmentation(ds, ['crosswalk'], instances=routes, batch_size=1, segmenter=segmenter)
+workspace.generate_segmentation(ds, ['crosswalk', 'pole'], instances=routes, segmenter=segmenter,
+                                private_prompts=['face', 'license plate'])     # privacy prompts optional
+workspace.anonymize_frames(ds, instances=routes, segmenter=segmenter)          # optional, reuses the private masks
 workspace.generate_map_matched_routes(ds, instances=routes)                     # calls the public OSRM server
 workspace.generate_sidewalk_assessment_events(ds)
-workspace.transcribe(ds, instances=routes, model_name='small', language='en')   # optional, needs [transcription]
+workspace.transcribe(ds, instances=routes, model_name='turbo', language='en',
+                     name='turbo-vad', vad=True)                                # optional, needs [transcription]
 workspace.generate_report()                                                     # writes report/
 ```
 
-Create one `Sam3Segmenter` and pass it to every step to load the model once.
+Create one `Sam3Segmenter` and pass it to every step to load the model once. Pass all prompts in one `generate_segmentation` call: each frame is encoded once and every prompt runs on that encoding. On an RTX 3070 the encoding takes 0.66 s per frame and each prompt 0.11 s, so 33 prompts cost 4.3 s per frame instead of 25.5 s. Prompts added later run on a new encoding, and only for chunks they are missing from.
 
 ## Transcripts
 
-`transcribe()` runs Whisper on each route's video and writes `transcripts/whisper-<model>/<route>.json`: the detected language, the parameters, the video's `media_start_time` (UTC) and a list of segments with `start` and `end` in seconds from the video start, `text`, `avg_logprob` and `no_speech_prob`. Add a segment's `start` to `media_start_time` to place it on the GPS track and frame timeline. Whisper also invents text over silence and street noise. A high `no_speech_prob` flags some of it, but on the West Loop pilot every invented segment had a low `no_speech_prob` and an `avg_logprob` below −1, so filter on `avg_logprob` too.
+`transcribe()` runs Whisper on each route's video and writes `transcripts/<name>/<route>.json` (`name` defaults to `whisper-<model>`, so variants with other settings can sit side by side): the detected language, the parameters, the video's `media_start_time` (UTC) and a list of segments with `start` and `end` in seconds from the video start, `text`, `avg_logprob`, `no_speech_prob` and `compression_ratio`. With `vad=True`, Silero VAD finds the speech first and Whisper transcribes only those regions (`speech_regions` in the file). Add a segment's `start` to `media_start_time` to place it on the GPS track and frame timeline. Whisper also invents text over silence and street noise. A high `no_speech_prob` flags some of it, but on the West Loop pilot every invented segment had a low `no_speech_prob` and an `avg_logprob` below −1, so filter on `avg_logprob` too.
 
 It needs `pip install sideseeing-tools[transcription]` and FFmpeg on the `PATH`. `condition_on_previous_text` defaults to `False` to limit repeated text across long silences; other Whisper options pass through. Videos without readable audio are skipped with a warning, and existing transcripts are kept. On an 8 GB GPU, free SAM3 first (`build_workspace` does this) before loading a larger Whisper model.
 
