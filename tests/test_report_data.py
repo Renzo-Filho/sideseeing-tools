@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -5,7 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from sideseeing_tools import report_sensors
+from sideseeing_tools import report_geo, report_sensors
 from sideseeing_tools.export import Report
 
 FIXTURE_DATASET = Path(__file__).parent.parent / 'fixtures' / 'dataset'
@@ -22,6 +23,28 @@ def test_sensor_export_skips_absent_groups_and_preserves_values(tmp_path):
     assert paths == {'route': 'data/sensors_route.json'}
     assert data[0]['x'] == [0, 1]
     assert data[0]['y'] == [10, 20]
+
+
+def test_geo_export_adds_the_map_matched_route_when_given(tmp_path):
+    gpd = pytest.importorskip('geopandas')
+    from shapely.geometry import LineString
+
+    gps = pd.DataFrame({'latitude': [41.87, 41.88], 'longitude': [-87.65, -87.64]})
+    dataset = SimpleNamespace(iterator=[
+        SimpleNamespace(name=name, geolocation_points=gps, geolocation_center=[41.875, -87.645]) for name in ('a', 'b')])
+    routes = tmp_path / 'routes'
+    routes.mkdir()
+    gpd.GeoDataFrame(geometry=[LineString([(-87.651, 41.871), (-87.641, 41.881)])], crs='EPSG:4326').to_file(
+        routes / 'a.gpkg', driver='GPKG')
+
+    report_geo.process_geo_data(dataset, str(tmp_path / 'plain'))
+    report_geo.process_geo_data(dataset, str(tmp_path / 'matched'), str(routes))
+    read = lambda folder, name: json.loads((tmp_path / folder / f'geo_{name}.json').read_text())
+
+    assert 'corrected_path' not in read('plain', 'a')
+    assert read('matched', 'a')['corrected_path'] == [[41.871, -87.651], [41.881, -87.641]]
+    assert read('matched', 'b')['corrected_path'] == []
+    assert read('matched', 'a')['path'] == read('plain', 'a')['path']
 
 
 @pytest.mark.parametrize('generate_metadata', [False, True])

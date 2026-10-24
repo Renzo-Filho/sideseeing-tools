@@ -486,6 +486,7 @@ class SideSeeingWorkspace:
 
         kwargs.setdefault("title", f"SideSeeing Report - {self.output_dir.name}")
         kwargs.setdefault("viewer_url", "../")
+        kwargs.setdefault("routes_dir", str(self.routes_gpkg_dir))
         Report().generate_report(str(self.data_dir), str(self.report_dir), **kwargs)
 
     def build_workspace(self, dataset: SideSeeingDS, prompts: list, extract_step: int = 30,
