@@ -14,76 +14,49 @@
         </div>
 
         <div class="flex flex-col md:flex-row h-[700px]">
-            <div class="w-full md:w-64 bg-slate-50 border-r border-gray-200 flex flex-col shrink-0 overflow-y-auto">
-                
-                <div class="p-4 border-b border-gray-200 space-y-4">
-                    <span class="text-xs uppercase font-bold text-gray-500 tracking-wider block mb-2">Visualization</span>
-                    
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs text-gray-700">Base image</span>
-                        <div class="relative inline-block w-8 align-middle select-none">
-                            <input type="checkbox" id="cb-base-img" class="toggle-checkbox" checked onchange="toggleBaseImage()">
-                            <label for="cb-base-img" class="toggle-label"></label>
-                        </div>
+            <div class="w-full md:w-72 bg-slate-50 border-r border-gray-200 flex flex-col shrink-0 overflow-hidden">
+                <div class="p-4 border-b border-gray-200 space-y-3">
+                    <span class="text-xs uppercase font-bold text-gray-500 tracking-wider block">Visualization</span>
+                    <div class="grid grid-cols-3 gap-2 text-[11px] text-gray-700">
+                        <label class="flex items-center gap-1.5"><input type="checkbox" id="cb-base-img" checked onchange="toggleBaseImage()" class="accent-indigo-600"> Image</label>
+                        <label class="flex items-center gap-1.5"><input type="checkbox" id="cb-mask" checked onchange="toggleMaskMaster()" class="accent-indigo-600"> Masks</label>
+                        <label class="flex items-center gap-1.5"><input type="checkbox" id="cb-all-bboxes" onchange="toggleAllBBoxLayer()" class="accent-indigo-600"> Boxes</label>
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs text-gray-700">Bounding boxes</span>
-                        <div class="relative inline-block w-8 align-middle select-none">
-                            <input type="checkbox" id="cb-all-bboxes" class="toggle-checkbox" checked onchange="toggleAllBBoxLayer()">
-                            <label for="cb-all-bboxes" class="toggle-label"></label>
+                    <div>
+                        <div class="flex justify-between text-[11px] text-gray-500 mb-0.5">
+                            <span>Mask opacity</span><span id="mask-opacity-label" class="text-indigo-600">85%</span>
                         </div>
+                        <input type="range" min="0" max="100" value="85" oninput="updateMaskOpacity(this.value)" class="w-full accent-indigo-600">
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-xs text-gray-700">Masks</span>
-                        <div class="relative inline-block w-8 align-middle select-none">
-                            <input type="checkbox" id="cb-mask" class="toggle-checkbox" checked onchange="toggleMaskMaster()">
-                            <label for="cb-mask" class="toggle-label"></label>
+                    <div>
+                        <div class="flex justify-between text-[11px] text-gray-500 mb-0.5">
+                            <span>Minimum score</span><span id="min-score-label" class="text-indigo-600">0.50</span>
                         </div>
-                    </div>
-                    
-                    <div class="pt-2">
-                        <div class="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>Mask Opacity</span>
-                            <span id="mask-opacity-label" class="text-indigo-600">40%</span>
-                        </div>
-                        <input type="range" min="0" max="100" value="40" oninput="updateMaskOpacity(this.value)" class="w-full accent-indigo-600">
+                        <input type="range" id="min-score" min="50" max="100" value="50" oninput="updateMinScore(this.value)" onchange="renderFrame()" class="w-full accent-indigo-600">
                     </div>
                 </div>
-
-                <div class="flex border-b border-gray-200">
-                    <button onclick="switchTab('boxes')" id="tab-btn-boxes" class="flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-center border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50 transition-colors">
-                        Box Classes
-                    </button>
-                    <button onclick="switchTab('masks')" id="tab-btn-masks" class="flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-center border-b-2 border-transparent text-gray-500 hover:bg-gray-50 transition-colors">
-                        Mask Classes
-                    </button>
+                <div class="p-3 border-b border-gray-200 space-y-2">
+                    <input type="search" id="class-search" placeholder="Find a class..." oninput="renderClassList()"
+                           class="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 focus:outline-none focus:border-indigo-500">
+                    <div id="dataviz-presets" class="flex flex-wrap gap-1"></div>
                 </div>
-
-                <div class="flex-1 overflow-y-auto p-4 flex flex-col">
-                    <div class="flex justify-between items-center mb-2">
-                        <span class="text-xs font-bold text-gray-500 uppercase">Classes</span>
-                        <button onclick="toggleAllClasses()" class="text-[10px] text-indigo-500 hover:text-indigo-700">Invert</button>
+                <div class="flex-1 overflow-y-auto p-3 custom-scrollbar" id="dataviz-class-list">
+                    <div class="text-xs text-gray-400 italic">Select an instance to load classes.</div>
+                </div>
+                <div class="border-t border-gray-200 p-3 shrink-0" id="dataviz-stats-container">
+                    <div class="flex justify-between items-center text-xs mb-2">
+                        <span class="text-gray-500 font-bold uppercase tracking-wider">In this frame</span>
+                        <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-mono font-bold" id="stat-total">0</span>
                     </div>
-                    
-                    <div id="dataviz-class-list" class="space-y-1 flex-1">
-                        <div class="text-xs text-gray-400 italic">Select an instance to load classes.</div>
-                    </div>
-                    
-                    <div class="mt-4 border-t border-gray-200 pt-4 hidden shrink-0" id="dataviz-stats-container">
-                        <div class="flex justify-between items-center text-xs mb-2">
-                            <span class="text-gray-500 font-bold uppercase tracking-wider">Visible Boxes</span>
-                            <span class="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-mono font-bold" id="stat-total">0</span>
-                        </div>
-                        <div id="stat-list" class="flex flex-col gap-1 mt-2 max-h-32 overflow-y-auto custom-scrollbar"></div>
-                    </div>
+                    <div id="stat-list" class="flex flex-col gap-0.5 max-h-36 overflow-y-auto custom-scrollbar"></div>
                 </div>
             </div>
-
             <div class="flex-1 bg-slate-900 relative overflow-hidden flex flex-col">
                 <div class="absolute top-4 left-4 z-30 flex gap-2 pointer-events-none">
                     <div class="bg-black/70 backdrop-blur px-3 py-1.5 rounded border border-white/10 shadow-lg text-xs font-mono text-slate-200">
                         <span id="dataviz-filename">No image loaded</span>
                     </div>
+                    <div id="dataviz-redaction" class="hidden bg-black/70 backdrop-blur px-3 py-1.5 rounded border border-white/10 shadow-lg text-xs"></div>
                 </div>
 
                 <div class="flex-1 relative flex items-center justify-center dataviz-checkerboard overflow-hidden p-6">
@@ -105,7 +78,7 @@
                             </div>
                         </div>
                         <img id="base-image" src="" class="block w-full h-full object-contain absolute inset-0 transition-opacity duration-200" draggable="false">
-                        <img id="mask-layer" src="" class="block w-full h-full object-contain absolute inset-0 pointer-events-none transition-opacity duration-200 opacity-40">
+                        <img id="mask-layer" src="" class="block w-full h-full object-contain absolute inset-0 pointer-events-none transition-opacity duration-200" style="opacity: 0.85">
                         
                         <svg id="svg-layer" viewBox="0 0 1000 1000" class="absolute top-0 left-0 w-full h-full pointer-events-none overflow-visible z-10 transition-opacity duration-200"></svg>
                     </div>

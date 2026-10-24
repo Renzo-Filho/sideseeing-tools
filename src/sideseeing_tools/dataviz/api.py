@@ -71,7 +71,8 @@ def _route_predictions(workspace_dir, route):
     frames = [path.name for path in list_frames(route_frames_dir(workspace_dir, route))]
     found = predictions.route_predictions(workspace_dir / "preds", route, frames)
     classes = sorted({detection["class_name"] for detections in found.values() for detection in detections})
-    return frames, found, classes
+    groups = predictions.prompt_groups(workspace_dir, classes)
+    return frames, found, groups, predictions.group_colors(groups)
 
 
 @router.get("/image/{route}/{filename}")
@@ -97,21 +98,24 @@ def get_thumbnail(route: str, filename: str, request: Request):
 
 
 @router.get("/mask/{filename}")
-def get_mask_overlay(filename: str, request: Request, classes: str = "", instance: str = ""):
-    """A transparent PNG with the masks of the requested classes for one frame."""
+def get_mask_overlay(filename: str, request: Request, classes: str = "", instance: str = "", min_score: float = 0.0):
+    """A transparent PNG with the masks of the requested classes for one frame: surfaces filled, objects outlined."""
     _frame_path(request, instance, filename)
     requested = {name.strip() for name in classes.split(",") if name.strip()}
-    _, found, all_classes = _route_predictions(request.app.state.workspace, instance)
-    overlay = predictions.mask_overlay(found.get(filename, []), requested, all_classes) if requested else None
+    _, found, groups, colors = _route_predictions(request.app.state.workspace, instance)
+    filled = {name for group in groups if group["fill"] for name in group["classes"]}
+    overlay = (
+        predictions.mask_overlay(found.get(filename, []), requested, colors, filled, min_score) if requested else None
+    )
     return Response(overlay or EMPTY_PNG, media_type="image/png")
 
 
 @router.get("/data/{route}")
 def get_route_data(route: str, request: Request):
-    """Frames, boxes with scores, the box and mask classes of one route, and whether frames are redacted."""
+    """Frames, boxes with scores, the classes of one route with their groups and colors, and whether frames are redacted."""
     workspace_dir = _workspace_for(request, route)
-    frames, found, classes = _route_predictions(workspace_dir, route)
-    colors = {name: "rgb({},{},{})".format(*predictions.class_color(name, classes)[:3]) for name in classes}
+    frames, found, groups, rgba = _route_predictions(workspace_dir, route)
+    colors = {name: "rgb({},{},{})".format(*color[:3]) for name, color in rgba.items()}
     bboxes = {}
 
     for name, detections in found.items():
@@ -134,6 +138,7 @@ def get_route_data(route: str, request: Request):
         "box_classes": sorted({d["class_name"] for d in detections if d["boxes"]}),
         "mask_classes": sorted({d["class_name"] for d in detections if d["mask"]}),
         "class_colors": colors,
+        "groups": groups,
         "redacted": served_frames_dir(workspace_dir, route) != route_frames_dir(workspace_dir, route),
     }
 

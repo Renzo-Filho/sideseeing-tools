@@ -1,4 +1,5 @@
 import io
+import json
 from pathlib import Path
 
 import cv2
@@ -82,12 +83,31 @@ def test_new_results_appear_without_restart(client, ws):
     assert client.get('/api/dataviz/data/route-b').json()['mask_classes'] == ['pole', 'tree']
 
 
-def test_mask_overlay_colors_requested_classes(client):
-    response = client.get(f'/api/dataviz/mask/{FRAME}', params=dict(classes='curb ramp', instance='route-a'))
-    alpha = np.asarray(Image.open(io.BytesIO(response.content)))[..., 3]
+def test_mask_overlay_outlines_objects_fills_surfaces_and_drops_low_scores(ws, client):
+    def alpha(**params):
+        response = client.get(f'/api/dataviz/mask/{FRAME}', params=dict(classes='curb ramp', instance='route-a', **params))
+        return np.asarray(Image.open(io.BytesIO(response.content)))[..., 3]
 
-    assert alpha.shape == (40, 60)
-    assert np.count_nonzero(alpha) == 200 and alpha[15, 20] == 255
+    outline = alpha()
+    assert outline.shape == (40, 60)
+    assert np.count_nonzero(outline) == 200 - 4 * 14 and outline[10, 10] == 255 and outline[15, 20] == 0
+    assert np.count_nonzero(alpha(min_score=0.95)) == 0
+
+    (ws / 'prompt_groups.json').write_text(json.dumps(dict(groups=[dict(name='Surface', fill=True, prompts=['curb ramp'])])))
+    filled = alpha()
+    assert np.count_nonzero(filled) == 200 and filled[15, 20] == 110
+
+
+def test_classes_are_grouped_with_one_hue_family_per_group(ws, client):
+    (ws / 'prompt_groups.json').write_text(json.dumps(dict(groups=[
+        dict(name='Surface', fill=True, prompts=['sidewalk', 'curb ramp']), dict(name='Empty', prompts=['bench'])])))
+    data = client.get('/api/dataviz/data/route-a').json()
+
+    assert data['groups'] == [dict(name='Surface', fill=True, classes=['curb ramp'])]
+    assert set(data['class_colors']) == {'curb ramp'}
+
+    (ws / 'prompt_groups.json').unlink()
+    assert client.get('/api/dataviz/data/route-b').json()['groups'] == [dict(name='All', fill=False, classes=['pole'])]
 
 
 @pytest.mark.parametrize('url', [
