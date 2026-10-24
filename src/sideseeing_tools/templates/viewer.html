@@ -56,6 +56,10 @@
             <a href="{{ report_url }}" class="flex items-center gap-3 px-4 py-3 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-all">
                 <i data-lucide="file-text" size="18"></i><span class="font-medium text-sm">Report</span>
             </a>
+            {% else %}
+            <div class="flex items-center gap-3 px-4 py-3 text-slate-600" title="Run SideSeeingWorkspace.generate_report(), or build_workspace.py with --report">
+                <i data-lucide="file-text" size="18"></i><span class="font-medium text-sm">Report not generated</span>
+            </div>
             {% endif %}
         </nav>
 

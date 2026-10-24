@@ -40,9 +40,20 @@ Measured on 23 October 2026. "PyTorch" is `torch.cuda.max_memory_allocated`; "ca
 | SAM3, 3 prompts, batch 1 | 2,653 × 3 | 6,371 s (1 h 46 min) | 3.90 GiB PyTorch | 0.80 s per frame and prompt; 498 chunks |
 | Map matching (public OSRM) | – | 119 s | – | First attempt failed: torchvision's bundled libjpeg broke pyogrio; fixed in 7e20eb9 |
 | Sidewalk events | – | 3 s | – | 131 events: 67 crosswalk, 59 sidewalk, 5 curb ramp |
-| Whisper `turbo` + vocabulary prompt | – | 73 s | 4.59 GiB | 273 segments, none with `no_speech_prob` > 0.6 |
+| Whisper `turbo` + vocabulary prompt | – | 73 s | 4.59 GiB | 273 segments; 51 with `avg_logprob` < −1, none with `no_speech_prob` > 0.5 |
+| Static report | – | 33 s | – | Not built by the run (no `--report`); generated afterwards |
 
-Detections per prompt (frames with at least one instance, of 2,653): sidewalk 2,618 (median best score 0.91), crosswalk 1,528 (0.85), curb ramp 15 (0.61). Curb ramps are mentioned often in the narration, so SAM3 misses most of them with this prompt; crosswalk in 58% of frames needs a visual check for false positives.
+## Findings from the full pass
+
+Analysed in `sideseeing-network/network/west_loop_sam3_whisper.ipynb`, against the stops, turns and crossings measured from the motion sensors in `west_loop.ipynb`, the OSM crosswalks of the route-plan snapshot, and the narration.
+
+- **`sidewalk` works.** Found in 2,618 of 2,653 frames (median best score 0.91). The 35 misses are mid-crosswalk, on a rail crossing or facing a fence. Its share of the image drops from 0.48 walking to 0.18 on crossings.
+- **`crosswalk` works.** It is in 58% of frames because 48% of the frames fall inside a crossing (this protocol crosses the walked street at every intersection and waits at signals). It is detected in all 62 crossings, in 75% of frames within 10 m of a mapped crosswalk and 3–9% beyond 40 m. False positives: painted utility marks and a rail crossing's panels.
+- **`curb ramp` fails.** Said in 63 narration segments; SAM3 finds a curb ramp near 1 of them. Its 15 detections (scores 0.54–0.73) are curb edges, construction barriers and a rail crossing panel, so the 5 curb ramp events are wrong too. The frames at the 63 mentions are a ready test set for other prompts ("curb cut", "tactile paving", "detectable warning surface").
+- **Sidewalk events are the cap.** 57 of 59 are exactly `MAX_FRAMES_PER_EVENT` (45) frames: continuous detection cut into pieces, not events.
+- **Whisper hallucinations are not caught by `no_speech_prob`.** Invented segments ("The вашиisma passage", "機械") all have `avg_logprob` < −1 and low `no_speech_prob`; doc-workspace.md now says to filter on both. The vocabulary works: "crosswalk" is said a median 4 s after leaving the curb, so narration can label frames.
+- **Viewer and report.** `build_workspace.py` builds the report only with `--report`, and the viewer showed no sign that one was missing. The viewer now shows "Report not generated" with the command in a tooltip.
+- **Map matching crashed** in the first attempt: torchvision's bundled libjpeg breaks `pyogrio` when SAM3 runs first in the same process. Fixed in 7e20eb9.
 
 Decisions from the quick pass: SAM3 batch 1 (batching does not speed it up on the 3070); Whisper `turbo` with the vocabulary prompt `Sidewalk audit narration: curb ramp, crosswalk, obstacle, pothole, signal, sidewalk, pole, tree.`
 

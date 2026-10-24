@@ -99,6 +99,7 @@ def test_viewer_lists_routes_and_events(client, ws):
     assessment = client.get('/api/viewer/assessment/route-b').json()
 
     assert '"name": "route-a"' in page and '"name": "route-b"' in page and 'href="report/"' not in page
+    assert 'Report not generated' in page
     assert assessment['points'][0]['frames'] == [f'/api/dataviz/image/route-b/{FRAME}']
     assert client.get('/api/viewer/assessment/route-a').status_code == 404
 
