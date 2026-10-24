@@ -8,6 +8,7 @@ let currentDatavizState = {
     activeClasses: new Set(),
     collapsedGroups: new Set(),
     minScore: 0.5,
+    scale: 1,             // frame width / 1000: keeps labels and strokes readable at any resolution
     highlight: null       // index of the detection hovered in the per-frame list
 };
 
@@ -116,6 +117,8 @@ function renderFrame() {
         const svg = document.getElementById("svg-layer");
         svg.setAttribute("viewBox", `0 0 ${baseImage.naturalWidth} ${baseImage.naturalHeight}`);
         document.getElementById("dataviz-canvas").style.aspectRatio = `${baseImage.naturalWidth} / ${baseImage.naturalHeight}`;
+        const scale = baseImage.naturalWidth / 1000;
+        if(scale !== state.scale) { state.scale = scale; renderBBoxes(filename, false); }
     };
 
     const params = new URLSearchParams({
@@ -151,16 +154,17 @@ function svgElement(tag, attributes) {
 function drawBox(svg, box, emphasized) {
     const color = box.color || "#00ff00";
     const label = box.confidence == null ? box.class_name : `${box.class_name} ${box.confidence.toFixed(2)}`;
+    const k = currentDatavizState.scale;
     const group = svgElement("g", {});
     group.appendChild(svgElement("rect", {
         x: box.xmin, y: box.ymin, width: box.xmax - box.xmin, height: box.ymax - box.ymin,
-        fill: "none", stroke: color, "stroke-width": emphasized ? 6 : 2,
+        fill: "none", stroke: color, "stroke-width": (emphasized ? 4 : 1.5) * k,
     }));
     group.appendChild(svgElement("rect", {
-        x: box.xmin, y: box.ymin - 18, width: label.length * 7 + 8, height: 18, fill: color, rx: 2,
+        x: box.xmin, y: box.ymin - 18 * k, width: (label.length * 7 + 8) * k, height: 18 * k, fill: color, rx: 2 * k,
     }));
     const text = svgElement("text", {
-        x: box.xmin + 4, y: box.ymin - 5, fill: "white", "font-size": "12px",
+        x: box.xmin + 4 * k, y: box.ymin - 5 * k, fill: "white", "font-size": `${12 * k}px`,
         "font-family": "sans-serif", "font-weight": "bold",
     });
     text.textContent = label;
