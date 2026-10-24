@@ -62,7 +62,7 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 
   No curb ramp phrasing works. `curb cut` fires more mid-block than near crosswalks at every score threshold (0.5–0.95), so it is not tracking ramps. `tactile paving` is a strong proxy: Chicago's ramps carry detectable warning plates. Spoken mentions are not exhaustive, so "mentions found" is a recall proxy.
 - [ ] Galleries of `tactile paving` and `curb cut` masks on redacted frames, to confirm what each one segments.
-- [ ] **You:** adopt `tactile paving` as the curb ramp signal? Later option: SAM3 also accepts image exemplars (boxes around a few real ramps) instead of text.
+- [x] **Decision (Renzo): `tactile paving` is the curb ramp proxy.** Limitation: some curb ramps have no tactile plate (Renzo says so in the narration), so the proxy misses them; the 3 of 63 mentions without a tactile detection are the first places to check. Later option: SAM3 image exemplars (boxes around a few real ramps, with and without plates).
 
 ## Phase 3: Whisper hallucination test
 
@@ -84,12 +84,21 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 
   The baseline claims 184 min of speech in 292 min of recording; the silence guard cuts flagged segments 4× and keeps the narration; Silero VAD with default settings drops most of it (likely voice under street noise). Flags are automatic (`avg_logprob` < −1, non-Latin script), not verified.
 - [x] Review packet v1 (three turbo variants, 64 windows, 8 per session): `sideseeing-network/data/west_loop_review/whisper-v1/review.html` on the laptop. v2 with the `large-v3` variants after the run.
-- [ ] **You:** review, then pick the configuration.
+- [x] Renzo reviewed all 64 windows (`west_loop_review/whisper-v1/review_answers_renzo.csv`, 88 variant ratings):
+
+  | Variant | Rated | Correct | Wrong words | Invented | Missed speech |
+  |---|---:|---:|---:|---:|---:|
+  | `turbo-silence` | 44 | 37 (84%) | 4 | 2 | 1 |
+  | `whisper-turbo` | 25 | 14 (56%) | 6 | 4 | 1 |
+  | `turbo-vad` | 19 | 7 (37%) | 6 | 4 | 2 |
+
+  In the 8 windows without speech the baseline invented text in 3 of 4 ratings; `turbo-silence` was right in 5 of 7. Notes: some segments are passers-by or noise (no variant separates speakers), and the 22 Oct sessions include a second collector ("he said").
+- [x] **Decision: `turbo-silence`** (turbo, vocabulary prompt, `word_timestamps=True`, `hallucination_silence_threshold=2`). The two `large-v3` variants (after the run) are compared with it automatically; a second review only if they differ substantially. The exported CSV escaped quotes as `\"`; fixed for v2 (e488ec7).
 
 ## Phase 4: freeze
 
 - [ ] Final prompt list and Whisper configuration recorded in `tasks/desktop-01-pilot.md`.
-- [x] Public OSRM map matching skipped for the new sessions (unattended default); **You:** run it later?
+- [x] Public OSRM map matching skipped. **Decision (Renzo): map matching is future work and will not use OSM.** The viewer and report show the smoothed GPS track instead (67309f6).
 
 ## Phase 5: full run (detached, logged, monitored)
 
@@ -105,7 +114,12 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 
 - [x] Viewer serves redacted frames whenever a route has them, in every tab (image and thumbnail endpoints); a missing redacted frame is a 404, not a fallback (0be3519; deployed after the run).
 - [x] Dataviz prototype for ~35 prompts on branch `feature/dataviz-groups` (14cfbe5, f5f72d7), tested on D1 S1 with all 35 prompts: groups from `prompt_groups.json`, one hue per group, surfaces as faint fills and objects as outlines, presets, search, per-frame counts, minimum score, per-frame detection list with hover highlight, redaction badge; the tab opens on the first group. Screenshots: `sideseeing-network/data/west_loop_review/dataviz-prototype/`.
-- [ ] **You:** approve (or change) the prototype, then merge it.
+- [x] Approved and merged into `feature/remote-pilot` (2c1adb2).
+
+## Phase 6b: after the run (automatic, `after_run.sh` then `finalize.sh` on desktop-01)
+
+- [ ] `large-v3-vad` and `large-v3-silence` on all sessions; summary refreshed.
+- [ ] Checkout switched to the new code; events (smoothed positions) and report (Smoothed GPS) regenerated; Whisper review packet v2; viewer restarted with the grouped dataviz tab and redacted frames.
 
 ## Phase 7: review and close
 

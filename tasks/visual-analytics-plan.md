@@ -120,24 +120,22 @@ Two separate problems that the assessment map currently mixes up:
 1. **Where was the camera?** (trajectory: side of street, crossings)
 2. **Where is the detected object?** A frame from one sidewalk can show the opposite sidewalk or a crosswalk 20 m ahead.
 
-**Immediate fixes, small:**
+**Done (24 October).** The report, the viewer and the events no longer use the OSRM match (a car road-centreline match from a public server). They use the phone's GPS smoothed with a 5-fix running median, interpolated at frame times, labelled "Smoothed GPS" (67309f6). This is a display smoother: it removes jitter, not side-of-street error.
 
-- Label the current layer "Road-matched (OSRM car profile)", not "Corrected GPS", in the report and viewer.
-- In the assessment tab, place events at the camera position (raw GPS) and draw the road match only as context.
-- Ask before sending traces to a public server. A collector's GPS is personal data; `map_matching` should name its endpoint and allow a self-hosted one.
+**Decision (Renzo, 24 October): the future map matching will not use OSM.** That rules out the OSM-based methods first listed here (Valhalla on the street network, HMM matching to OSM sidewalk lines) and keeps the study in the critique's street-only and street + aerial regimes.
 
 **Study.** Compare trajectory methods on D1 and D2 against the gyroscope crossings and, later, labelled references:
 
 | Method | Input regime | Note |
 |---|---|---|
-| Raw GPS, 5-fix median | street-only | Baseline |
-| OSRM demo (current) | map-assisted, car network | Current behaviour |
-| Valhalla `trace_attributes` with pedestrian costing, self-hosted on desktop-01 | map-assisted, street network | A real foot profile, no third party |
-| HMM matching to OSM **sidewalk** lines (`footway=sidewalk`, crossings) | map-assisted, sidewalk network | Gives a side, not just a street |
-| The above + IMU turn and crossing events as constraints | map-assisted + motion | Tests H1's "motion resolves when, not where" |
-| The notebook's corrected track | map-assisted + route plan | Upper reference; uses the route plan, so not a method |
+| Raw GPS, 5-fix median (current display) | street-only | Baseline |
+| GPS + IMU dead reckoning between fixes (step length, gyroscope heading), with a smoother such as a Kalman/RTS filter | street-only | Uses data every session has; fixes heading and corners, not absolute side |
+| The above + turn, stop and crossing events as constraints | street-only + motion | Tests H1's "motion resolves when, not where" |
+| The above + video cues (curb, crosswalk, sidewalk masks: which side of the frame the road is on) | street-only + video | A side estimate without a map |
+| Aerial-derived sidewalk lines as the map to match to | street + aerial | The critique's second regime; aerial is a separate, declared input |
+| The notebook's corrected track | map-assisted + route plan | Reference only; uses OSM and the route plan, so not a method |
 
-**Object placement**, the part that serves the assessment tab: project each mask onto the ground. We already have the camera pitch from gravity (the notebook's §8), the mask's lowest row and horizontal centre (`sam3_frames.parquet`), the heading from GPS or gyroscope, and the camera's position. Ground-plane projection gives a distance and bearing from the camera, so a position with an error ellipse, and a side relative to the walked street. Measures: distance from crosswalk detections to the nearest mapped crosswalk (current median 3.5 m for event centres, which are camera positions), and side accuracy against labels. Keep camera position, object position and their uncertainty as separate fields. The assessment tab draws all three.
+**Object placement**, the part that serves the assessment tab: project each mask onto the ground. We already have the camera pitch from gravity (the notebook's §8), the mask's lowest row and horizontal centre (`sam3_frames.parquet`), the heading from GPS or gyroscope, and the camera's position. Ground-plane projection gives a distance and bearing from the camera, so a position with an error ellipse, and a side relative to the walked street. Measures: side accuracy against labels, and (as a map-assisted diagnostic only) distance from crosswalk detections to the nearest mapped crosswalk (median 3.5 m for the pilot's event centres, which are camera positions). Keep camera position, object position and their uncertainty as separate fields. The assessment tab draws all three.
 
 Metrics follow the critique: side identity and abstention, length of wrong-side stretches, crossing attachment, and distance to mapped features only as a map-assisted diagnostic.
 
@@ -146,7 +144,7 @@ Metrics follow the critique: side identity and abstention, length of wrong-side 
 | Step | Work | Depends on |
 |---|---|---|
 | 1 | Workspace read API, `status()`, manifests for transcripts and map matching; notebook switches to it | – |
-| 2 | Relabel road matching; assessment events at camera position; configurable matcher endpoint | – |
+| 2 | ~~Relabel road matching; assessment events at camera position~~ Done: smoothed GPS everywhere (67309f6) | – |
 | 3 | V1 timeline with spoken-event and motion-event tracks | 1, stop/turn detectors ported |
 | 4 | V2 question panels and prompt evaluation | 3 |
 | **Checkpoint A** | Review with the research plan: is the timeline the right primitive for labelling? | |
@@ -167,6 +165,6 @@ Metrics follow the critique: side identity and abstention, length of wrong-side 
 
 1. Should the generic labelling feature live in `sideseeing-tools` and only the vocabulary in `sideseeing-network`, as proposed, or should labelling stay entirely in the research repo?
 2. Is the viewer meant to go upstream to Rafael's repository (PR B), or remain a fork feature while it changes quickly?
-3. Self-hosted Valhalla (or OSRM with a foot profile) on desktop-01: acceptable to run there, and which OSM extract?
+3. ~~Self-hosted Valhalla on desktop-01?~~ Settled: no OSM; map matching is future work (see the GPS study).
 4. Does the workspace hold several routes of one study (all West Loop sessions), or one workspace per day? The graph needs several routes together.
 5. Which questions should be the first V2 panels: the pilot's, or the H1 motif checks?
