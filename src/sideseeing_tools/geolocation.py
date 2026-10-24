@@ -1,5 +1,7 @@
 from math import asin, cos, radians, sin, sqrt
 
+import numpy as np
+import pandas as pd
 import requests
 import reverse_geocode
 
@@ -63,3 +65,34 @@ def calculate_haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * asin(sqrt(a))
 
     return EARTH_RADIUS_KM * c
+
+
+# Fixes in the running median of smooth_track: about 5 s of walking at 1 Hz GPS. It removes jitter and
+# single-fix jumps but keeps corners. ponytail: a display smoother, not map matching or side-of-street
+# correction (see tasks/visual-analytics-plan.md for that study).
+SMOOTHING_WINDOW = 5
+
+
+def smooth_track(points, window=SMOOTHING_WINDOW):
+    """A copy of time-ordered GPS points with latitude and longitude replaced by a centred running median."""
+    smoothed = points.copy()
+    for column in ('latitude', 'longitude'):
+        smoothed[column] = points[column].rolling(window, center=True, min_periods=1).median()
+    return smoothed
+
+
+def position_at(track, times, time_column='Datetime UTC', tolerance_s=5.0):
+    """(latitude, longitude) arrays interpolated along a track at `times`.
+
+    Times more than `tolerance_s` before the first fix or after the last are NaN. Gaps between fixes are
+    bridged linearly, so positions inside a long GPS gap are approximate.
+    """
+    def seconds(values):
+        return (pd.to_datetime(pd.Series(values)).dt.tz_localize(None) - pd.Timestamp(0)).dt.total_seconds().to_numpy()
+
+    fixes, wanted = seconds(track[time_column]), seconds(times)
+    latitude = np.interp(wanted, fixes, track['latitude'].to_numpy())
+    longitude = np.interp(wanted, fixes, track['longitude'].to_numpy())
+    outside = (wanted < fixes[0] - tolerance_s) | (wanted > fixes[-1] + tolerance_s)
+    latitude[outside] = longitude[outside] = np.nan
+    return latitude, longitude

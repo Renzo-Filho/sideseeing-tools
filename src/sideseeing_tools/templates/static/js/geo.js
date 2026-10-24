@@ -79,7 +79,7 @@ function initGeoSection(activeMaps, loadedGeoData) {
     }
     
     function renderGeoMap(sampleName, data) {
-        const { center, path: originalPath, corrected_path: correctedPath } = data;
+        const { center, path: originalPath, smoothed_path: smoothedPath } = data;
 
         if (!originalPath || originalPath.length === 0) {
             if (geoPlaceholder) {
@@ -113,13 +113,13 @@ function initGeoSection(activeMaps, loadedGeoData) {
 
         let startPoint, endPoint;
 
-        if (correctedPath && correctedPath.length > 0) {
-            const correctedPolyline = L.polyline(correctedPath, { color: '#3388ff', opacity: 0.8, weight: 4 });
-            overlayLayers["Corrected GPS"] = correctedPolyline;
-            bounds.extend(correctedPolyline.getBounds());
-            correctedPolyline.addTo(map);
-            startPoint = correctedPath[0];
-            endPoint = correctedPath[correctedPath.length - 1];
+        if (smoothedPath && smoothedPath.length > 0) {
+            const smoothedPolyline = L.polyline(smoothedPath, { color: '#3388ff', opacity: 0.8, weight: 4 });
+            overlayLayers["Smoothed GPS"] = smoothedPolyline;
+            bounds.extend(smoothedPolyline.getBounds());
+            smoothedPolyline.addTo(map);
+            startPoint = smoothedPath[0];
+            endPoint = smoothedPath[smoothedPath.length - 1];
         } else {
             startPoint = originalPath[0];
             endPoint = originalPath[originalPath.length - 1];

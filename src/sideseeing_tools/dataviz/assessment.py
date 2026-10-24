@@ -36,18 +36,16 @@ def _event_frames(frame_names, start_image, end_image):
 
 
 def _route_path(workspace_dir, route):
-    gpkg = Path(workspace_dir) / 'geomatching' / 'routes_gpkg' / f'{route}.gpkg'
+    """[lat, lon] of the route's smoothed GPS track (geolocation.smooth_track), from data/<route>/gps.csv."""
+    from sideseeing_tools.geolocation import smooth_track
 
-    if not gpkg.is_file():
+    gps = Path(workspace_dir) / 'data' / route / 'gps.csv'
+
+    if not gps.is_file():
         return []
 
-    import geopandas as gpd
-
-    path = []
-    for geometry in gpd.read_file(gpkg).geometry.dropna():
-        for line in getattr(geometry, 'geoms', [geometry]):
-            path.extend([y, x] for x, y in line.coords)
-    return path
+    points = pd.read_csv(gps).dropna(subset=['latitude', 'longitude']).sort_values('datetime_utc')
+    return smooth_track(points.reset_index(drop=True))[['latitude', 'longitude']].values.tolist()
 
 
 def route_assessment(workspace_dir, route, frame_names):

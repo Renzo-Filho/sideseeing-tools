@@ -60,7 +60,7 @@ function initSidewalkAssessmentMap(assessmentData) {
                 <div class="legend-item flex items-center gap-2 mb-1.5">
                     <input type="checkbox" id="legend-checkbox-route" ${layerVisibilityState['route'] ? 'checked' : ''} class="legend-checkbox accent-indigo-600 w-3 h-3 rounded-sm cursor-pointer">
                     <i style="background:#3388ff; border: 2px solid #3388ff; width: 12px; height: 12px; display: inline-block; border-radius: 2px;"></i>
-                    <label for="legend-checkbox-route" class="text-xs text-gray-700 cursor-pointer select-none">GPS Route</label>
+                    <label for="legend-checkbox-route" class="text-xs text-gray-700 cursor-pointer select-none">Smoothed GPS</label>
                 </div>`;
 
             presentTypes.forEach(type => {

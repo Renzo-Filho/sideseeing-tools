@@ -3,11 +3,13 @@ import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from sideseeing_tools import report_geo, report_sensors
 from sideseeing_tools.export import Report
+from sideseeing_tools.geolocation import position_at, smooth_track
 
 FIXTURE_DATASET = Path(__file__).parent.parent / 'fixtures' / 'dataset'
 
@@ -25,26 +27,26 @@ def test_sensor_export_skips_absent_groups_and_preserves_values(tmp_path):
     assert data[0]['y'] == [10, 20]
 
 
-def test_geo_export_adds_the_map_matched_route_when_given(tmp_path):
-    gpd = pytest.importorskip('geopandas')
-    from shapely.geometry import LineString
+def test_smoothing_removes_single_fix_jumps_and_interpolates_in_time():
+    times = pd.date_range('2026-10-19 20:00', periods=6, freq='s')
+    track = smooth_track(pd.DataFrame({'Datetime UTC': times, 'latitude': [0, 0, 9, 0, 0, 0.0],
+                                       'longitude': [0, 1, 2, 3, 4, 5.0]}))
+    latitude, longitude = position_at(track, [times[2] + pd.Timedelta(seconds=0.5), times[0] - pd.Timedelta(seconds=10)])
 
-    gps = pd.DataFrame({'latitude': [41.87, 41.88], 'longitude': [-87.65, -87.64]})
-    dataset = SimpleNamespace(iterator=[
-        SimpleNamespace(name=name, geolocation_points=gps, geolocation_center=[41.875, -87.645]) for name in ('a', 'b')])
-    routes = tmp_path / 'routes'
-    routes.mkdir()
-    gpd.GeoDataFrame(geometry=[LineString([(-87.651, 41.871), (-87.641, 41.881)])], crs='EPSG:4326').to_file(
-        routes / 'a.gpkg', driver='GPKG')
+    assert track.latitude.tolist() == [0.0] * 6
+    assert latitude[0] == 0.0 and longitude[0] == pytest.approx(2.5)
+    assert np.isnan(latitude[1]) and np.isnan(longitude[1])
 
-    report_geo.process_geo_data(dataset, str(tmp_path / 'plain'))
-    report_geo.process_geo_data(dataset, str(tmp_path / 'matched'), str(routes))
-    read = lambda folder, name: json.loads((tmp_path / folder / f'geo_{name}.json').read_text())
 
-    assert 'corrected_path' not in read('plain', 'a')
-    assert read('matched', 'a')['corrected_path'] == [[41.871, -87.651], [41.881, -87.641]]
-    assert read('matched', 'b')['corrected_path'] == []
-    assert read('matched', 'a')['path'] == read('plain', 'a')['path']
+def test_geo_export_adds_the_smoothed_track(tmp_path):
+    gps = pd.DataFrame({'latitude': [41.87, 41.87, 41.99, 41.87, 41.87], 'longitude': [-87.65] * 5})
+    dataset = SimpleNamespace(iterator=[SimpleNamespace(name='a', geolocation_points=gps, geolocation_center=[41.87, -87.65])])
+
+    report_geo.process_geo_data(dataset, str(tmp_path))
+    data = json.loads((tmp_path / 'geo_a.json').read_text())
+
+    assert data['path'][2] == [41.99, -87.65]
+    assert data['smoothed_path'] == [[41.87, -87.65]] * 5
 
 
 @pytest.mark.parametrize('generate_metadata', [False, True])

@@ -32,7 +32,7 @@ workspace/
 │   │               └── frame-000000.npz  masks, boxes and scores of every detected instance
 │   └── private/                       face and license plate masks for redaction; never shown or used for events
 ├── geomatching/
-│   ├── routes_gpkg/route01.gpkg       OSRM map-matched route
+│   ├── routes_gpkg/route01.gpkg       OSRM road match, only after generate_map_matched_routes(); not shown
 │   └── map_events.csv                 sidewalk events built from detections and GPS
 ├── transcripts/
 │   └── whisper-small/route01.json     timed Whisper segments, after transcribe(); one folder per variant
@@ -68,7 +68,7 @@ workspace.extract_frames(ds, extract_step=30, instances=routes)
 workspace.generate_segmentation(ds, ['crosswalk', 'pole'], instances=routes, segmenter=segmenter,
                                 private_prompts=['face', 'license plate'])     # privacy prompts optional
 workspace.anonymize_frames(ds, instances=routes, segmenter=segmenter)          # optional, reuses the private masks
-workspace.generate_map_matched_routes(ds, instances=routes)                     # calls the public OSRM server
+workspace.generate_map_matched_routes(ds, instances=routes)                     # optional; calls the public OSRM server
 workspace.generate_sidewalk_assessment_events(ds)
 workspace.transcribe(ds, instances=routes, model_name='turbo', language='en',
                      name='turbo-vad', vad=True)                                # optional, needs [transcription]
@@ -76,6 +76,10 @@ workspace.generate_report()                                                     
 ```
 
 Create one `Sam3Segmenter` and pass it to every step to load the model once. Pass all prompts in one `generate_segmentation` call: each frame is encoded once and every prompt runs on that encoding. On an RTX 3070 the encoding takes 0.66 s per frame and each prompt 0.11 s, so 33 prompts cost 4.3 s per frame instead of 25.5 s. Prompts added later run on a new encoding, and only for chunks they are missing from.
+
+## Positions
+
+Events, the report maps and the viewer place things on the route's **smoothed GPS track**: the phone's fixes with a 5-fix running median (`geolocation.smooth_track`), interpolated at each frame's time (`geolocation.position_at`). An event sits at its middle frame, and its length is measured along the track. This removes GPS jitter for display; it does not correct which side of the street the phone was on, and a detection's position is the camera's position, not the object's. `generate_map_matched_routes()` still exists, but the public OSRM server only offers a car profile (it matches to road centrelines), so nothing uses its output.
 
 ## Transcripts
 

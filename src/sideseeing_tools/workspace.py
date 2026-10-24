@@ -367,50 +367,26 @@ class SideSeeingWorkspace:
                 continue
             matcher.match_trace(instance, output_dir=str(self.routes_gpkg_dir))
 
-    def _create_event_dict(self, event_df, event_id, instance_name):
-        import geopandas as gpd
-        from shapely.geometry import Point
-        from shapely.ops import nearest_points
+    @staticmethod
+    def _create_event_dict(event_df, event_id, instance_name):
+        """One event from consecutive detected frames with positions on the smoothed GPS track: placed at the
+        middle frame, with the length walked along the track from the first frame to the last."""
         from sideseeing_tools import utils
 
         if event_df.empty:
             return None
 
-        start_row = event_df.iloc[0]
-        end_row = event_df.iloc[-1]
-
-        raw_lat = event_df['latitude'].mean()
-        raw_lon = event_df['longitude'].mean()
-
-        center_latitude = raw_lat
-        center_longitude = raw_lon
-
-        gpkg_path = self.routes_gpkg_dir / f"{instance_name}.gpkg"
-
-        if gpkg_path.exists():
-            try:
-                gdf = gpd.read_file(gpkg_path)
-                if not gdf.empty and 'geometry' in gdf.columns:
-                    line_geom = gdf.geometry.union_all()
-                    snapped_point = nearest_points(line_geom, Point(raw_lon, raw_lat))[0]
-                    center_latitude = snapped_point.y
-                    center_longitude = snapped_point.x
-            except Exception as e:
-                print(f"[Workspace Warning] Error snapping to route for {instance_name}: {e}")
-
-        # Haversine distance
-        length_meters = utils.calculate_haversine_distance(
-            start_row['latitude'], start_row['longitude'],
-            end_row['latitude'], end_row['longitude']
-        ) * 1000.0 # utils returns km
+        middle = event_df.iloc[len(event_df) // 2]
+        steps = zip(event_df['latitude'], event_df['longitude'], event_df['latitude'][1:], event_df['longitude'][1:])
+        length_meters = 1000.0 * sum(utils.calculate_haversine_distance(*step) for step in steps)
 
         return {
             'event_id': f"EVT-{event_id:05d}",
-            'start_image': start_row['image_name'],
-            'end_image': end_row['image_name'],
-            'center_latitude': center_latitude,
-            'center_longitude': center_longitude,
-            'feature': start_row['prompt'],
+            'start_image': event_df.iloc[0]['image_name'],
+            'end_image': event_df.iloc[-1]['image_name'],
+            'center_latitude': middle['latitude'],
+            'center_longitude': middle['longitude'],
+            'feature': middle['prompt'],
             'length_meters': length_meters,
             'instance_name': instance_name
         }
@@ -453,8 +429,10 @@ class SideSeeingWorkspace:
     def generate_sidewalk_assessment_events(self, dataset: SideSeeingDS):
         """
         Aggregates SAM3 detections into spatial map events based on continuous video frames,
-        syncing timestamps from frames to the raw GPS data.
+        placing each frame on the smoothed GPS track (geolocation.smooth_track) at its timestamp.
         """
+        from sideseeing_tools.geolocation import position_at, smooth_track
+
         print("[Workspace] Generating sidewalk assessment events...")
         map_events = []
         event_id_counter = 1
@@ -472,9 +450,7 @@ class SideSeeingWorkspace:
                 print(f"[Workspace Warning] No GPS data for {route}. Skipping event generation.")
                 continue
 
-            df_gps = df_gps.copy()
-            df_gps['Datetime UTC'] = pd.to_datetime(df_gps['Datetime UTC']).dt.tz_localize(None)
-            df_gps = df_gps.sort_values('Datetime UTC')
+            track = smooth_track(df_gps.sort_values('Datetime UTC').reset_index(drop=True))
 
             fps = self._route_fps(instance)
             frame_data = []
@@ -496,17 +472,8 @@ class SideSeeingWorkspace:
             if not frame_data:
                 continue
 
-            df_frames = pd.DataFrame(frame_data).sort_values('frame_time')
-
-            df_merged = pd.merge_asof(
-                df_frames,
-                df_gps[['Datetime UTC', 'latitude', 'longitude']],
-                left_on='frame_time',
-                right_on='Datetime UTC',
-                direction='nearest',
-                tolerance=pd.Timedelta(seconds=5)
-            )
-
+            df_merged = pd.DataFrame(frame_data)
+            df_merged['latitude'], df_merged['longitude'] = position_at(track, df_merged['frame_time'])
             df_merged = df_merged.dropna(subset=['latitude', 'longitude'])
             if df_merged.empty:
                 continue
@@ -623,7 +590,6 @@ class SideSeeingWorkspace:
 
         kwargs.setdefault("title", f"SideSeeing Report - {self.output_dir.name}")
         kwargs.setdefault("viewer_url", "../")
-        kwargs.setdefault("routes_dir", str(self.routes_gpkg_dir))
         Report().generate_report(str(self.data_dir), str(self.report_dir), **kwargs)
 
     def build_workspace(self, dataset: SideSeeingDS, prompts: list, extract_step: int = 30,

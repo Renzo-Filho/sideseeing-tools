@@ -40,7 +40,7 @@ python -m sideseeing_tools.dataviz -i /path/to/workspace   # on gpu-host
 | SAM3 results | `preds/sam3/<prompt>/<route>/<chunk>/manifest.json` and its `.npz` files |
 | Older SAM3 results | `preds/<model>/detections.csv` with masks in `preds/<model>/<route>-frames/<frame>-mask.png` |
 | Project Sidewalk labels | `preds/predictions.csv`: an `image` column and one 0/1 column per class |
-| Events and paths | `geomatching/map_events.csv` and `geomatching/routes_gpkg/<route>.gpkg` |
+| Events and paths | `geomatching/map_events.csv`; the path is the route's GPS (`data/<route>/gps.csv`) smoothed with a running median |
 
 Results are read per route, so frames with the same name in different routes never share overlays. Parsed files are cached until they change, so results written while the server runs appear on the next request. The server writes nothing into the workspace except frames requested through Video Frames.
 

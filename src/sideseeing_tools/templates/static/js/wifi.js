@@ -31,7 +31,7 @@ function initWifiSection(activeMaps, loadedWifiData) {
         wifiSpinner.classList.add('flex');
         wifiPlaceholder.style.display = 'none';
 
-        // Signal points come from the Wi-Fi file; the phone and corrected routes from the sample's geo file.
+        // Signal points come from the Wi-Fi file; the phone and smoothed tracks from the sample's geo file.
         Promise.all([
             fetch(`${jsonPath}?v=${Date.now()}`).then(res => res.json()),
             fetch(`${GEO_FILES[sampleName]}?v=${Date.now()}`).then(res => res.json())
@@ -40,7 +40,7 @@ function initWifiSection(activeMaps, loadedWifiData) {
                 name: sampleName,
                 data: wifiData,
                 geo: { path: geoData.path },
-                analysis: { path: geoData.corrected_path }
+                analysis: { path: geoData.smoothed_path }
             };
             wifiSpinner.classList.add('hidden');
 
@@ -155,7 +155,7 @@ function initWifiSection(activeMaps, loadedWifiData) {
     function renderBaseMap(sampleData) {
         const { geo, analysis } = sampleData;
         const originalPath = geo.path;
-        const correctedPath = analysis ? analysis.path : null;
+        const smoothedPath = analysis ? analysis.path : null;
 
         if (!originalPath || originalPath.length === 0) return;
 
@@ -183,11 +183,11 @@ function initWifiSection(activeMaps, loadedWifiData) {
         bounds.extend(originalPolyline.getBounds());
         originalPolyline.addTo(map);
 
-        if (correctedPath && correctedPath.length > 0) {
-            const correctedPolyline = L.polyline(correctedPath, { color: '#3388ff', opacity: 0.8, weight: 4 });
-            overlayLayers["Corrected GPS"] = correctedPolyline;
-            bounds.extend(correctedPolyline.getBounds());
-            correctedPolyline.addTo(map);
+        if (smoothedPath && smoothedPath.length > 0) {
+            const smoothedPolyline = L.polyline(smoothedPath, { color: '#3388ff', opacity: 0.8, weight: 4 });
+            overlayLayers["Smoothed GPS"] = smoothedPolyline;
+            bounds.extend(smoothedPolyline.getBounds());
+            smoothedPolyline.addTo(map);
         }
         
         map.fitBounds(bounds, { padding: [20, 20] });
@@ -230,11 +230,11 @@ function initWifiSection(activeMaps, loadedWifiData) {
 
         map.signalLayers.clearLayers();
 
-        const correctedPath = (sampleData.analysis && sampleData.analysis.path && sampleData.analysis.path.length > 1) 
+        const smoothedPath = (sampleData.analysis && sampleData.analysis.path && sampleData.analysis.path.length > 1) 
             ? sampleData.analysis.path 
             : null;
 
-        const pathForSnapping = correctedPath || sampleData.geo.path;
+        const pathForSnapping = smoothedPath || sampleData.geo.path;
         if (!pathForSnapping || pathForSnapping.length < 2) return;
 
         const pathLine = L.polyline(pathForSnapping);

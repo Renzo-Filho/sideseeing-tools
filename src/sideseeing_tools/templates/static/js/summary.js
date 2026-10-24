@@ -24,13 +24,13 @@ function initSummaryMap() {
     Promise.all(dataPromises).then(results => {
         const combinedBounds = L.latLngBounds();
 
-        // The map-matched route when the workspace has one, otherwise the phone's GPS.
+        // The smoothed track, or the phone's raw fixes for older reports without one.
         results.forEach(({ name, data }) => {
-            const corrected = data.corrected_path && data.corrected_path.length > 0;
-            const path = corrected ? data.corrected_path : data.path;
+            const smoothed = data.smoothed_path && data.smoothed_path.length > 0;
+            const path = smoothed ? data.smoothed_path : data.path;
             if (!path || path.length === 0) return;
 
-            const polyline = L.polyline(path, { color: corrected ? '#3388ff' : '#dc3545', weight: 5 });
+            const polyline = L.polyline(path, { color: smoothed ? '#3388ff' : '#dc3545', weight: 5 });
             polyline.bindPopup(`<b>Sample:</b><br>${name}`);
             polyline.addTo(overviewMap);
             combinedBounds.extend(polyline.getBounds());

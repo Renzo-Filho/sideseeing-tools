@@ -44,12 +44,8 @@ class Report:
         segmentation_manifest=None,
         redaction_files=None,
         viewer_url=None,
-        routes_dir=None,
     ):
-        """Generate an HTML report and its assets from a recording dataset.
-
-        `routes_dir` holds map-matched routes (`<sample>.gpkg`), drawn on the maps as the corrected route.
-        """
+        """Generate an HTML report and its assets from a recording dataset."""
         if viewer_url and urlsplit(viewer_url).scheme not in ('', 'http', 'https'):
             raise ValueError('Viewer URL must be relative, HTTP or HTTPS')
 
@@ -77,7 +73,7 @@ class Report:
         sections = {
             'sensor': report_sensors.process_sensors_data(ds, output_dir_data),
             'wifi': report_wifi.process_wifi_data(ds, output_dir_data),
-            'geo': report_geo.process_geo_data(ds, output_dir_data, routes_dir),
+            'geo': report_geo.process_geo_data(ds, output_dir_data),
         }
 
         processed_sections = {key: value or {} for key, value in sections.items()}
