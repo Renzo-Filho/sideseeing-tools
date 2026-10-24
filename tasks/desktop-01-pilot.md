@@ -24,14 +24,27 @@ Measured from the laptop on 23 October 2026 (rclone listing, `metadata.json`, vi
 
 ## Measurements
 
+Measured on 23 October 2026. "PyTorch" is `torch.cuda.max_memory_allocated`; "card" is the `nvidia-smi` maximum, including the CUDA context and about 0.6 GB used by the desktop session.
+
 | Stage | Frames | Duration | Peak GPU memory | Notes |
 |---|---:|---:|---:|---|
-| Fetch (rclone) | – | | – | |
-| Extract frames, step 900 | | | – | |
-| SAM3, 1 prompt, batch 1 | | | | |
-| Whisper small, 44 min | – | | | |
-| Extract frames, step 30 | | | – | |
-| SAM3, 3 prompts, batch 1 | | | | |
+| Fetch (presigned links, curl) | – | under 2 min for 7.0 GB | – | All 9 MD5s match RustFS |
+| SAM3 weights copy (laptop to desktop) | – | 74 s for 3.4 GB | – | SHA-256 identical |
+| Extract frames, step 900 | 89 | 6 s | – | Recorded fps 30.03 |
+| SAM3 `sidewalk`, batch 1 | 89 | 74 s | 3.87 GiB PyTorch, 5.1 GB card | 86 of 89 frames with detections |
+| SAM3 batch 2 / batch 4 | 89 | 0.778 / 0.775 s per frame | 4.57 / 5.96 GiB | No speedup over batch 1 (0.778 s) |
+| Whisper `small`, 44 min | – | 42 s | 1.53 GiB | Mishearings and invented fragments |
+| Whisper `turbo`, 44 min | – | 102 s | 4.75 GiB | Better; some errors |
+| Whisper `turbo` + vocabulary prompt | – | 52 s | 4.75 GiB | Best: consistent "curb ramp", fewest invented fragments |
+| Extract frames, step 30 | 2,653 | 158 s | – | |
+| SAM3, 3 prompts, batch 1 | 2,653 × 3 | 6,371 s (1 h 46 min) | 3.90 GiB PyTorch | 0.80 s per frame and prompt; 498 chunks |
+| Map matching (public OSRM) | – | 119 s | – | First attempt failed: torchvision's bundled libjpeg broke pyogrio; fixed in 7e20eb9 |
+| Sidewalk events | – | 3 s | – | 131 events: 67 crosswalk, 59 sidewalk, 5 curb ramp |
+| Whisper `turbo` + vocabulary prompt | – | 73 s | 4.59 GiB | 273 segments, none with `no_speech_prob` > 0.6 |
+
+Detections per prompt (frames with at least one instance, of 2,653): sidewalk 2,618 (median best score 0.91), crosswalk 1,528 (0.85), curb ramp 15 (0.61). Curb ramps are mentioned often in the narration, so SAM3 misses most of them with this prompt; crosswalk in 58% of frames needs a visual check for false positives.
+
+Decisions from the quick pass: SAM3 batch 1 (batching does not speed it up on the 3070); Whisper `turbo` with the vocabulary prompt `Sidewalk audit narration: curb ramp, crosswalk, obstacle, pothole, signal, sidewalk, pole, tree.`
 
 ## Decisions after the pilot
 
