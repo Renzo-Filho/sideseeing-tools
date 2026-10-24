@@ -58,9 +58,19 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
   - `turbo-silence`: + `hallucination_silence_threshold=2` with `word_timestamps=True` (built in);
   - `turbo-vad`: Silero VAD first, Whisper only on speech regions (`silero-vad` approved);
   - `large-v3-vad`: `large-v3` with VAD;
+  - `large-v3-silence`: `large-v3` with the silence guard (added after the first comparison);
   - post-filters on `avg_logprob`, `compression_ratio` and `no_speech_prob`, applied in the comparison, not as runs.
-- [ ] Automatic comparison: segments kept, known garbage segments removed, vocabulary counts, time per variant.
-- [ ] Review packet: sampled and flagged segments with their audio clips and a form (correct / wrong words / invented / missed speech). Local only; audio does not leave the machines.
+- [x] The three turbo variants ran on all 8 sessions in the main run. `large-v3` failed there: `.half()` breaks Whisper's float32 LayerNorm. Fixed by keeping LayerNorm in float32 (tested on D1 S1's first 90 s, peak 3.1 GiB); `after_run.sh` runs both `large-v3` variants once the main run finishes.
+- [x] First automatic comparison (`review/whisper-v1/comparison.csv`), all sessions:
+
+  | Variant | Segments | Speech time | Flagged | "curb ramp" | "crosswalk" |
+  |---|---:|---:|---:|---:|---:|
+  | `whisper-turbo` | 1,867 | 183.9 min | 376 | 451 | 374 |
+  | `turbo-silence` | 1,708 | 55.5 min | 92 | 455 | 390 |
+  | `turbo-vad` | 1,184 | 49.2 min | 318 | 47 | 68 |
+
+  The baseline claims 184 min of speech in 292 min of recording; the silence guard cuts flagged segments 4× and keeps the narration; Silero VAD with default settings drops most of it (likely voice under street noise). Flags are automatic (`avg_logprob` < −1, non-Latin script), not verified.
+- [x] Review packet v1 (three turbo variants, 64 windows, 8 per session): `sideseeing-network/data/west_loop_review/whisper-v1/review.html` on the laptop. v2 with the `large-v3` variants after the run.
 - [ ] **You:** review, then pick the configuration.
 
 ## Phase 4: freeze

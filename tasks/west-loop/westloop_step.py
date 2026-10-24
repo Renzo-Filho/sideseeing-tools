@@ -48,6 +48,8 @@ WHISPER_VARIANTS = {
     'turbo-silence': ('turbo', dict(word_timestamps=True, hallucination_silence_threshold=2.0)),
     'turbo-vad': ('turbo', dict(vad=True)),
     'large-v3-vad': ('large-v3', dict(vad=True)),
+    # added after the first comparison: the silence guard kept the narration, VAD lost most of it
+    'large-v3-silence': ('large-v3', dict(word_timestamps=True, hallucination_silence_threshold=2.0)),
 }
 
 HALF = {'large-v3'}
@@ -86,11 +88,16 @@ def main(stage):
     elif stage == 'whisper':
         import whisper
         for model_name in dict.fromkeys(model for model, _ in WHISPER_VARIANTS.values()):
-            # openai-whisper keeps float32 weights; large-v3 needs ~10 GB that way, so it runs in half precision
-            # (its layers cast to the input type, and inference is fp16 anyway). Turbo stays as in the pilot.
+            # openai-whisper keeps float32 weights; large-v3 needs ~10 GB that way, so it runs in half precision.
+            # Whisper's LayerNorm computes in float32 with its own weights, so those layers stay float32.
+            # Turbo stays as in the pilot.
             model = whisper.load_model(model_name, device='cpu' if model_name in HALF else None)
             if model_name in HALF:
-                model = model.half().to('cuda')
+                model = model.half()
+                for module in model.modules():
+                    if isinstance(module, torch.nn.LayerNorm):
+                        module.float()
+                model = model.to('cuda')
             for name, (variant_model, options) in WHISPER_VARIANTS.items():
                 if variant_model == model_name:
                     each(f'whisper {name}', ds, lambda instance: ws.transcribe(
