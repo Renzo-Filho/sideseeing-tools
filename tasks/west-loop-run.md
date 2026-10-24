@@ -103,8 +103,9 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 
 ## Phase 6: viewer
 
-- [ ] Viewer and report serve redacted frames whenever they exist, in every tab; test that no route falls back to originals silently.
-- [ ] Dataviz design for ~30 prompts (see `tasks/visual-analytics-plan.md`): mock-up first. **You:** approve, then implement.
+- [x] Viewer serves redacted frames whenever a route has them, in every tab (image and thumbnail endpoints); a missing redacted frame is a 404, not a fallback (0be3519; deployed after the run).
+- [x] Dataviz prototype for ~35 prompts on branch `feature/dataviz-groups` (14cfbe5, f5f72d7), tested on D1 S1 with all 35 prompts: groups from `prompt_groups.json`, one hue per group, surfaces as faint fills and objects as outlines, presets, search, per-frame counts, minimum score, per-frame detection list with hover highlight, redaction badge; the tab opens on the first group. Screenshots: `sideseeing-network/data/west_loop_review/dataviz-prototype/`.
+- [ ] **You:** approve (or change) the prototype, then merge it.
 
 ## Phase 7: review and close
 
