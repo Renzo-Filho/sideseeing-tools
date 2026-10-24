@@ -25,8 +25,7 @@ conda env create -f environment.yml
 conda activate sideseeing
 python -m pip install --upgrade pip
 python -m pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -e '.[vision,workspace,dev]'
-python -m pip install openai-whisper
+python -m pip install -e '.[vision,workspace,transcription,dev]'
 python -m pip check
 ```
 
@@ -44,6 +43,30 @@ python -m pip check
 ```
 
 On desktop-01, `torch.cuda.is_available()` should be `True` and the GPU should be the RTX 3070. If CUDA is unavailable, capture these four outputs together with `nvidia-smi` before changing package versions.
+
+## Fetch captures from RustFS
+
+Captures live in the `sideseeing` bucket at `https://data.urbantk.org` (for example `chicago/west-loop/<capture>/` and `sao-paulo/bras/raw/<D#P#>/<capture>/`). rclone copies them to local disk, where `SideSeeingDS` reads them like any dataset. Results stay on desktop-01, so its key only needs read access; prefer a read-only RustFS access key over reusing a laptop key with write access.
+
+```bash
+conda install -n sideseeing -c conda-forge rclone      # already in environment.yml for new environments
+rclone config                                          # new remote "rustfs": type s3, provider Other,
+                                                       # endpoint https://data.urbantk.org, region us-east-1,
+                                                       # force_path_style true, then the access key pair
+chmod 600 ~/.config/rclone/rclone.conf
+rclone lsf rustfs:sideseeing/chicago/west-loop/        # check access
+```
+
+Mirror the bucket path under one local raw root, so each area folder is a dataset whose route names are the capture folders:
+
+```bash
+CAPTURE=chicago/west-loop/2026-10-19-15-43-14-478
+rclone copy "rustfs:sideseeing/$CAPTURE" "$HOME/sideseeing/raw/$CAPTURE" --checksum --transfers 4 --progress
+python examples/build_workspace.py -i "$HOME/sideseeing/raw/chicago/west-loop" -o "$HOME/sideseeing/workspaces/west-loop" \
+    -p sidewalk "curb ramp" crosswalk --whisper small --language en
+```
+
+`rclone copy` resumes and skips files that already match, and never deletes anything. Raw captures are large (a 44-minute West Loop video is about 6.7 GB); check free space with `df -h $HOME` and delete a local copy once its workspace is complete if space is short. The workspace keeps its own frames and results.
 
 For a first Whisper run on a short video, use a model that fits comfortably in 8 GB and keep inference jobs sequential:
 
