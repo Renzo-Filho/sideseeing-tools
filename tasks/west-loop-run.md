@@ -81,9 +81,9 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 ## Phase 5: full run (detached, logged, monitored)
 
 - [ ] One study workspace, `~/sideseeing/workspaces/west-loop`, with all sessions.
-- [ ] Frames, step 30, for new sessions.
+- [x] Frames, step 30, for new sessions (1,087 s for 7 sessions, no failures).
 - [ ] Redaction (face, license plate) for all sessions, including D1 S1.
-- [ ] Segmentation: all prompts; D1 S1 only the new ones.
+- [ ] Segmentation: all prompts; D1 S1 only the new ones. Started 24 Oct 04:00 (desktop clock). Measured in the run: 80 s per 16-frame chunk with 34 prompts (5.0 s per frame including saving), process memory steady at ~12 GB; expected end ~25 Oct morning.
 - [ ] Whisper: every variant on every session, one folder each; D1 S1's current `whisper-turbo` transcript is kept as the baseline.
 - [ ] Map matching (per Phase 4), events, report.
 - [ ] Record duration and peak GPU memory per stage and session.
