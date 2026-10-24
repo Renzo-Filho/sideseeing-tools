@@ -48,8 +48,21 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 
 - [ ] Test set from D1 S1: frames from 10 s before to 5 s after each of the 63 spoken curb ramp mentions (~900 frames), plus ~300 mid-block frames ≥ 50 m from any mapped crosswalk as negatives.
 - [ ] The 5 variants come from the full run (no separate experiment).
-- [ ] Report: share of mentions with a detection, share of negative frames with one, scores, and a gallery per variant. Spoken mentions are not exhaustive, so this is a proxy, not recall.
-- [ ] **You:** pick the winner (or none).
+- [x] Result on D1 S1 (`curb_ramp_test.py`; 63 spoken mentions, 113 frames ≥ 50 m from any mapped crosswalk):
+
+  | Prompt | Frames with a detection | Mentions found | Mid-block frames with one | Median score |
+  |---|---:|---:|---:|---:|
+  | `curb ramp` | 15 | 2% | 0% | 0.61 |
+  | `curb cut` | 1,947 | 100% | 72% | 0.74 |
+  | `wheelchair ramp` | 32 | 3% | 7% | 0.59 |
+  | `ramp` | 10 | 3% | 2% | 0.56 |
+  | `curbramp` | 0 | 0% | 0% | – |
+  | **`tactile paving`** | 577 | **95%** | **0%** | 0.85 |
+  | `curb` | 2,225 | 100% | 86% | 0.77 |
+
+  No curb ramp phrasing works. `curb cut` fires more mid-block than near crosswalks at every score threshold (0.5–0.95), so it is not tracking ramps. `tactile paving` is a strong proxy: Chicago's ramps carry detectable warning plates. Spoken mentions are not exhaustive, so "mentions found" is a recall proxy.
+- [ ] Galleries of `tactile paving` and `curb cut` masks on redacted frames, to confirm what each one segments.
+- [ ] **You:** adopt `tactile paving` as the curb ramp signal? Later option: SAM3 also accepts image exemplars (boxes around a few real ramps) instead of text.
 
 ## Phase 3: Whisper hallucination test
 
