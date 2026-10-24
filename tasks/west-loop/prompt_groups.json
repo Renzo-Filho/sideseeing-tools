@@ -1,0 +1,15 @@
+{
+  "groups": [
+    {"name": "Surface and crossings", "fill": true,
+     "prompts": ["sidewalk", "crosswalk", "curb", "driveway", "alley", "tactile paving", "stairs"]},
+    {"name": "Curb ramp variants", "fill": false,
+     "prompts": ["curb ramp", "curb cut", "wheelchair ramp", "ramp", "curbramp"]},
+    {"name": "Crossing control", "fill": false, "prompts": ["traffic light", "pedestrian signal", "stop sign"]},
+    {"name": "Obstacles and furniture", "fill": false,
+     "prompts": ["pole", "fire hydrant", "trash bin", "bench", "bollard", "tree", "planter", "parking meter",
+                 "bicycle rack", "bus stop"]},
+    {"name": "Temporary obstructions", "fill": false, "prompts": ["construction barrier", "traffic cone", "scaffolding"]},
+    {"name": "Surface condition", "fill": false, "prompts": ["pothole", "puddle", "manhole cover", "sidewalk crack"]},
+    {"name": "Context", "fill": false, "prompts": ["person", "car", "bicycle"]}
+  ]
+}

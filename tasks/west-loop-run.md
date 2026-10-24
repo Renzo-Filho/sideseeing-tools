@@ -25,11 +25,13 @@ Checklist, 24 October 2026. Runs on utk-desktop-01; results stay there. Nothing 
 | Context | person, car, bicycle |
 | Privacy (redaction only) | human face, license plate |
 
+Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_westloop.sh` runs `fetch_all.sh` and then `westloop_step.py` stage by stage; `whisper_review.py` builds the review packet; `prompt_groups.json` groups the prompts for the viewer. Logs: `~/sideseeing/logs/westloop/` (`status`, `run.log`, `gpu.csv`, `summary.json`).
+
 ## Phase 0: inventory (no GPU)
 
-- [ ] List `rustfs:sideseeing/chicago/west-loop/`: captures, sizes, video durations, audio present.
-- [ ] Estimate frames (step 30), GPU hours and disk; show the table. **You:** confirm the sessions.
-- [ ] Fetch missing captures to `~/sideseeing/raw/chicago/west-loop/` (presigned links, MD5 check against RustFS).
+- [x] 8 sessions in `rustfs:sideseeing/chicago/west-loop/`, 291.5 min, 43 GB (19 Oct: 2, 20 Oct: 2, 22 Oct: 4).
+- [x] Estimate: ~17,500 frames at step 30; 37 prompts at 4.8 s per frame, ~23–25 h of SAM3; ~1 h of Whisper; ~75 GB of disk (758 GB free).
+- [x] Fetched the 7 missing captures (presigned links, 12 h): 63 files, sizes and MD5s match; the two videos without an MD5 in RustFS open fully, with durations matching their metadata.
 
 ## Phase 1: encode each frame once (built into sideseeing-tools)
 
@@ -38,8 +40,9 @@ Checklist, 24 October 2026. Runs on utk-desktop-01; results stay there. Nothing 
 - [x] Privacy masks go to `preds/private/` (never read by events, viewer or report); `anonymize_frames` reuses them instead of running SAM3 again.
 - [x] `transcribe(name=..., vad=True)`: one folder per variant, Silero VAD before Whisper.
 - [x] Unit tests (193 pass).
-- [ ] On desktop-01: same masks, scores and boxes as the old per-prompt path on 20 real frames.
-- [ ] Re-measure seconds per frame with all prompts and peak GPU memory.
+- [x] On desktop-01: identical masks, scores and boxes to the old per-prompt path on 20 frames × 5 prompts (0 differing pixels).
+- [x] 37 prompts: 4.82 s per frame (old path: 28.6 s), peak 4.02 GiB, ~52 MiB of masks per frame in RAM.
+- [x] Smoke test of every stage on the fixture recording; `large-v3` runs in half precision (float32 weights need ~10 GB).
 
 ## Phase 2: curb ramp prompt test
 
