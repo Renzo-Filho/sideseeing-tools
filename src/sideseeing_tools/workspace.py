@@ -13,6 +13,13 @@ import pandas as pd
 from sideseeing_tools import media
 from sideseeing_tools.sideseeing import SideSeeingDS
 
+try:
+    # Load GDAL's libraries before SAM3 imports torchvision: torchvision bundles a libjpeg that,
+    # loaded first, breaks conda's libtiff and with it GeoPackage output in map matching.
+    import pyogrio  # noqa: F401
+except ImportError:
+    pass
+
 FRAMES_RECORD = 'frames.json'
 FRAME_NAME = re.compile(r'_(\d+)(_ms)?\.(?:jpg|png)$')
 # Frames per SAM3 manifest. A chunk's masks stay in memory until saved; lower it for 4K video.
