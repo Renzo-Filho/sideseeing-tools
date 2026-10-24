@@ -40,6 +40,15 @@ def route_frames_dir(workspace_dir, route):
     return named if named.is_dir() or not (frames_dir / route).is_dir() else frames_dir / route
 
 
+def served_frames_dir(workspace_dir, route):
+    """frames-redacted/<route>-frames/ when the route has been redacted, else its extracted frames.
+
+    A redacted folder appears only when complete, so a route is served either fully redacted or not.
+    """
+    redacted = Path(workspace_dir) / "frames-redacted" / f"{route}-frames"
+    return redacted if redacted.is_dir() else route_frames_dir(workspace_dir, route)
+
+
 def _workspace_for(request, route):
     workspace_dir = request.app.state.workspace
 
@@ -50,7 +59,7 @@ def _workspace_for(request, route):
 
 
 def _frame_path(request, route, filename):
-    path = route_frames_dir(_workspace_for(request, route), route) / filename
+    path = served_frames_dir(_workspace_for(request, route), route) / filename
 
     if Path(filename).name != filename or path.suffix not in IMAGE_SUFFIXES or not path.is_file():
         raise HTTPException(status_code=404, detail="Frame not found.")
@@ -67,7 +76,7 @@ def _route_predictions(workspace_dir, route):
 
 @router.get("/image/{route}/{filename}")
 def get_image(route: str, filename: str, request: Request):
-    """Serves the raw extracted frame."""
+    """Serves the extracted frame, redacted when the route has been redacted."""
     return FileResponse(_frame_path(request, route, filename))
 
 
@@ -99,8 +108,9 @@ def get_mask_overlay(filename: str, request: Request, classes: str = "", instanc
 
 @router.get("/data/{route}")
 def get_route_data(route: str, request: Request):
-    """Frames, boxes with scores, and the box and mask classes of one route."""
-    frames, found, classes = _route_predictions(_workspace_for(request, route), route)
+    """Frames, boxes with scores, the box and mask classes of one route, and whether frames are redacted."""
+    workspace_dir = _workspace_for(request, route)
+    frames, found, classes = _route_predictions(workspace_dir, route)
     colors = {name: "rgb({},{},{})".format(*predictions.class_color(name, classes)[:3]) for name in classes}
     bboxes = {}
 
@@ -124,6 +134,7 @@ def get_route_data(route: str, request: Request):
         "box_classes": sorted({d["class_name"] for d in detections if d["boxes"]}),
         "mask_classes": sorted({d["class_name"] for d in detections if d["mask"]}),
         "class_colors": colors,
+        "redacted": served_frames_dir(workspace_dir, route) != route_frames_dir(workspace_dir, route),
     }
 
 

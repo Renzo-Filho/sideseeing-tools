@@ -50,6 +50,20 @@ def client(ws):
     return TestClient(create_app(ws))
 
 
+def test_redacted_frames_are_served_when_the_route_has_them(ws, client):
+    redacted = ws / 'frames-redacted' / 'route-a-frames'
+    redacted.mkdir(parents=True)
+    cv2.imwrite(str(redacted / FRAME), np.full((40, 60, 3), 255, np.uint8))
+    pixel = lambda route: np.asarray(Image.open(io.BytesIO(client.get(f'/api/dataviz/image/{route}/{FRAME}').content)))[0, 0, 0]
+
+    assert pixel('route-a') > 200 and pixel('route-b') < 50
+    assert client.get('/api/dataviz/data/route-a').json()['redacted']
+    assert not client.get('/api/dataviz/data/route-b').json()['redacted']
+
+    (redacted / FRAME).unlink()
+    assert client.get(f'/api/dataviz/image/route-a/{FRAME}').status_code == 404
+
+
 def test_repeated_frame_names_stay_in_their_route(client):
     route_a = client.get('/api/dataviz/data/route-a').json()
     route_b = client.get('/api/dataviz/data/route-b').json()
