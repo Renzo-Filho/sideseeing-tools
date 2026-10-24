@@ -155,14 +155,56 @@ def test_anonymization_writes_copies_and_keeps_sources(dataset, extracted):
     assert record['prompts'] == ['face', 'license plate'] and record['model'] == {'model_id': 'fake'}
 
 
+class FakeWhisper:
+    """Stands in for a Whisper model; raises `error` instead when given one."""
+
+    def __init__(self, error=None):
+        self.calls = []
+        self.error = error
+
+    def transcribe(self, path, language=None, **options):
+        self.calls.append(Path(path).parent.name)
+        if self.error:
+            raise self.error
+        segment = dict(start=1.0, end=2.5, text=' Curb ramp here.', avg_logprob=-0.2, no_speech_prob=0.1)
+        return dict(language='en', text=segment['text'], segments=[segment])
+
+
+def test_transcription_writes_timed_segments_once(dataset, tmp_path):
+    ws = SideSeeingWorkspace(tmp_path)
+    whisper = FakeWhisper()
+    ws.transcribe(dataset, model_name='tiny', model=whisper)
+    record = json.loads((ws.transcripts_dir / 'whisper-tiny' / 'route-a.json').read_text())
+
+    assert whisper.calls == ['route-a', 'route-b']
+    assert record['media_start_time'] == '2024-01-06T14:59:48.138000'
+    assert record['segments'] == [dict(start=1.0, end=2.5, text='Curb ramp here.', avg_logprob=-0.2, no_speech_prob=0.1)]
+    assert record['language'] == 'en' and record['parameters'] == dict(condition_on_previous_text=False, language=None)
+
+    whisper.calls.clear()
+    ws.transcribe(dataset, model_name='tiny', model=whisper)
+
+    assert whisper.calls == []
+
+
+def test_transcription_skips_missing_audio_but_not_other_errors(dataset, tmp_path):
+    ws = SideSeeingWorkspace(tmp_path)
+    ws.transcribe(dataset, model_name='tiny', model=FakeWhisper(RuntimeError('Failed to load audio: no stream')))
+
+    assert list((ws.transcripts_dir / 'whisper-tiny').iterdir()) == []
+
+    with pytest.raises(RuntimeError, match='CUDA out of memory'):
+        ws.transcribe(dataset, model_name='tiny', model=FakeWhisper(RuntimeError('CUDA out of memory')))
+
+
 def test_build_workspace_runs_each_stage_once(dataset, tmp_path, monkeypatch):
     ws = SideSeeingWorkspace(tmp_path)
     calls = []
     stages = ['setup_data_directory', 'extract_frames', 'anonymize_frames', 'generate_segmentation',
-              'generate_map_matched_routes', 'generate_sidewalk_assessment_events']
+              'generate_map_matched_routes', 'generate_sidewalk_assessment_events', 'transcribe']
     for stage in stages:
         monkeypatch.setattr(ws, stage, lambda *args, stage=stage, **kwargs: calls.append(stage))
 
-    ws.build_workspace(dataset, ['sidewalk'], anonymize=True, segmenter=FakeSegmenter())
+    ws.build_workspace(dataset, ['sidewalk'], anonymize=True, segmenter=FakeSegmenter(), whisper_model='tiny')
 
     assert calls == stages

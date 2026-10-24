@@ -39,6 +39,20 @@ def frame_timestamp(name, fps):
     return float(index) if match[2] else index / fps
 
 
+def release_gpu_memory():
+    """Return cached GPU memory to the driver after dropping references to a model."""
+    import gc
+    gc.collect()
+
+    try:
+        import torch
+    except ImportError:
+        return
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def read_frames_record(frames_dir):
     path = Path(frames_dir) / FRAMES_RECORD
     return json.loads(path.read_text()) if path.exists() else None
@@ -106,6 +120,7 @@ class SideSeeingWorkspace:
         self.preds_dir = self.output_dir / "preds"
         self.geomatching_dir = self.output_dir / "geomatching"
         self.routes_gpkg_dir = self.geomatching_dir / "routes_gpkg"
+        self.transcripts_dir = self.output_dir / "transcripts"
         self.report_dir = self.output_dir / "report"
 
         for directory in (self.data_dir, self.frames_dir, self.preds_dir, self.routes_gpkg_dir):
@@ -472,6 +487,59 @@ class SideSeeingWorkspace:
         else:
             print("[Workspace] No events generated.")
 
+    def transcribe(self, dataset: SideSeeingDS, instances: list = None, model_name: str = "small",
+                   language: str = None, model=None, **options):
+        """
+        Transcribes the audio of each route's video with Whisper and writes timestamped segments
+        to transcripts/whisper-<model_name>/<route>.json. Segment times are seconds from the start
+        of the video; add them to media_start_time (UTC) to align them with GPS and frames.
+
+        Existing transcripts are kept. Videos without readable audio are skipped with a warning.
+        `options` go to Whisper's transcribe(); condition_on_previous_text defaults to False, which
+        reduces repeated text across long silences. Pass `model` to reuse a loaded Whisper model.
+        Requires `pip install sideseeing-tools[transcription]` and FFmpeg for the default model.
+        """
+        output_dir = self.transcripts_dir / f"whisper-{model_name}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        options.setdefault("condition_on_previous_text", False)
+
+        if model is None:
+            import whisper
+            model = whisper.load_model(model_name)
+
+        for instance in instances or dataset.iterator:
+            destination = output_dir / f"{instance.name}.json"
+
+            if destination.exists() or instance.video is None:
+                continue
+
+            print(f"[Workspace] Transcribing {instance.name} with Whisper {model_name}...")
+            try:
+                result = model.transcribe(str(instance.video), language=language, **options)
+            except RuntimeError as error:
+                if "Failed to load audio" not in str(error):
+                    raise
+                print(f"[Workspace Warning] No readable audio in {instance.name}. Skipping: {error}")
+                continue
+
+            record = dict(
+                version=1,
+                route=instance.name,
+                source=str(Path(instance.video).resolve()),
+                media_start_time=instance.media_start_time.isoformat(),
+                model=model_name,
+                language=result.get("language"),
+                parameters=dict(options, language=language),
+                segments=[
+                    dict(start=float(segment["start"]), end=float(segment["end"]), text=segment["text"].strip(),
+                         avg_logprob=segment.get("avg_logprob"), no_speech_prob=segment.get("no_speech_prob"))
+                    for segment in result["segments"]
+                ],
+            )
+            staging = destination.with_name(f".{destination.name}.tmp")
+            staging.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
+            staging.replace(destination)
+
     def generate_report(self, **kwargs):
         """
         Writes the static report for data/ to report/. It links back to the viewer, which
@@ -490,10 +558,12 @@ class SideSeeingWorkspace:
         Report().generate_report(str(self.data_dir), str(self.report_dir), **kwargs)
 
     def build_workspace(self, dataset: SideSeeingDS, prompts: list, extract_step: int = 30,
-                        use_symlinks: bool = True, anonymize: bool = False, segmenter=None):
+                        use_symlinks: bool = True, anonymize: bool = False, segmenter=None,
+                        whisper_model: str = None):
         """
         Master function to execute the entire pipeline on the whole dataset: links the data,
-        extracts frames, optionally writes redacted copies, segments, map-matches and builds events.
+        extracts frames, optionally writes redacted copies, segments, map-matches, builds events
+        and, when `whisper_model` is given, transcribes the audio.
         """
         self.setup_data_directory(dataset, use_symlinks)
         self.extract_frames(dataset, extract_step)
@@ -506,5 +576,10 @@ class SideSeeingWorkspace:
 
         self.generate_map_matched_routes(dataset)
         self.generate_sidewalk_assessment_events(dataset)
+
+        if whisper_model:
+            segmenter = None  # free SAM3 before loading Whisper; both may not fit on an 8 GB GPU
+            release_gpu_memory()
+            self.transcribe(dataset, model_name=whisper_model)
 
         print(f"[Workspace] Build pipeline complete! Everything is ready in {self.output_dir}.")

@@ -33,6 +33,8 @@ workspace/
 ├── geomatching/
 │   ├── routes_gpkg/route01.gpkg       OSRM map-matched route
 │   └── map_events.csv                 sidewalk events built from detections and GPS
+├── transcripts/
+│   └── whisper-small/route01.json     timed Whisper segments, after transcribe()
 └── report/                            static report, after generate_report()
 ```
 
@@ -66,10 +68,17 @@ workspace.anonymize_frames(ds, instances=routes, segmenter=segmenter)          #
 workspace.generate_segmentation(ds, ['crosswalk'], instances=routes, batch_size=1, segmenter=segmenter)
 workspace.generate_map_matched_routes(ds, instances=routes)                     # calls the public OSRM server
 workspace.generate_sidewalk_assessment_events(ds)
+workspace.transcribe(ds, instances=routes, model_name='small', language='en')   # optional, needs [transcription]
 workspace.generate_report()                                                     # writes report/
 ```
 
 Create one `Sam3Segmenter` and pass it to every step to load the model once.
+
+## Transcripts
+
+`transcribe()` runs Whisper on each route's video and writes `transcripts/whisper-<model>/<route>.json`: the detected language, the parameters, the video's `media_start_time` (UTC) and a list of segments with `start` and `end` in seconds from the video start, `text`, `avg_logprob` and `no_speech_prob`. Add a segment's `start` to `media_start_time` to place it on the GPS track and frame timeline. High `no_speech_prob` segments are often Whisper inventing text during silence.
+
+It needs `pip install sideseeing-tools[transcription]` and FFmpeg on the `PATH`. `condition_on_previous_text` defaults to `False` to limit repeated text across long silences; other Whisper options pass through. Videos without readable audio are skipped with a warning, and existing transcripts are kept. On an 8 GB GPU, free SAM3 first (`build_workspace` does this) before loading a larger Whisper model.
 
 ## Interrupted and repeated runs
 
