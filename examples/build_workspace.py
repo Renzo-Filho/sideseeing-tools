@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--anonymize", action="store_true", help="Also write redacted copies of the frames.")
     parser.add_argument("--whisper", metavar="MODEL", help="Also transcribe the audio with this Whisper model, e.g. small.")
     parser.add_argument("--language", help="Spoken language for Whisper, e.g. en or pt; detected when omitted.")
+    parser.add_argument("--whisper-prompt", help="Text Whisper sees before the audio, e.g. the audit vocabulary.")
     parser.add_argument("--skip-map-matching", action="store_true", help="Do not call the public OSRM server.")
     parser.add_argument("--report", action="store_true", help="Also write the static report to report/.")
     args = parser.parse_args()
@@ -60,7 +61,8 @@ def main():
     stage("events", workspace.generate_sidewalk_assessment_events, ds)
 
     if args.whisper:
-        stage("transcribe", workspace.transcribe, ds, model_name=args.whisper, language=args.language)
+        options = dict(initial_prompt=args.whisper_prompt) if args.whisper_prompt else {}
+        stage("transcribe", workspace.transcribe, ds, model_name=args.whisper, language=args.language, **options)
     if args.report:
         stage("report", workspace.generate_report)
 
