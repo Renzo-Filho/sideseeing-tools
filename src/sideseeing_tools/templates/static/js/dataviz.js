@@ -2,12 +2,14 @@ let currentDatavizState = {
     instance: null,
     frames: [],
     currentIndex: 0,
-    bboxes: [],
-    box_classes: [],
-    mask_classes: [],
-    activeBoxClasses: new Set(),
-    activeMaskClasses: new Set(),
-    activeTab: 'boxes' // 'boxes' or 'masks'
+    bboxes: {},
+    groups: [],           // [{name, fill, classes}] from the server (prompt_groups.json, else one group)
+    class_colors: {},
+    activeClasses: new Set(),
+    collapsedGroups: new Set(),
+    minScore: 0.5,
+    scale: 1,             // frame width / 1000: keeps labels and strokes readable at any resolution
+    highlight: null       // index of the detection hovered in the per-frame list
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -26,22 +28,29 @@ document.addEventListener("DOMContentLoaded", () => {
 async function loadInstanceData(instanceName) {
     if(!instanceName) return;
     resetDatavizUI();
-    
+
     try {
-        const res = await fetch(`/api/dataviz/data/${instanceName}`);
+        const res = await fetch(`/api/dataviz/data/${encodeURIComponent(instanceName)}`);
         const data = await res.json();
-        
-        currentDatavizState.instance = instanceName;
-        currentDatavizState.frames = data.frames; 
-        currentDatavizState.bboxes = data.bboxes; 
-        currentDatavizState.box_classes = data.box_classes; 
-        currentDatavizState.mask_classes = data.mask_classes; 
-        currentDatavizState.class_colors = data.class_colors || {};
-        
-        // Turn everything on by default
-        currentDatavizState.activeBoxClasses = new Set(data.box_classes);
-        currentDatavizState.activeMaskClasses = new Set(data.mask_classes);
-        currentDatavizState.currentIndex = 0;
+
+        Object.assign(currentDatavizState, {
+            instance: instanceName,
+            frames: data.frames,
+            bboxes: data.bboxes,
+            groups: data.groups || [],
+            class_colors: data.class_colors || {},
+            currentIndex: 0,
+            highlight: null,
+            collapsedGroups: new Set(),
+        });
+        // Start with the first group only: with dozens of prompts, everything at once is unreadable.
+        const first = currentDatavizState.groups[0];
+        currentDatavizState.activeClasses = new Set(first ? first.classes : []);
+
+        const badge = document.getElementById('dataviz-redaction');
+        badge.classList.remove('hidden', 'text-emerald-300', 'text-amber-300');
+        badge.classList.add(data.redacted ? 'text-emerald-300' : 'text-amber-300');
+        badge.textContent = data.redacted ? 'Redacted frames' : 'Original frames (not redacted)';
 
         const overlay = document.getElementById('extraction-overlay');
         const btnExtract = document.getElementById('btn-trigger-extract');
@@ -49,21 +58,11 @@ async function loadInstanceData(instanceName) {
         if (data.frames.length === 0) {
             overlay.classList.remove('hidden');
             btnExtract.onclick = () => triggerExtraction(instanceName);
-            return; 
+            return;
         }
 
         overlay.classList.add('hidden');
-        
-        // Disable tabs if data doesn't exist
-        // (Removed to allow free switching and show empty state messages instead)
-        
-        // Auto-switch to masks if no boxes exist
-        if(data.box_classes.length === 0 && data.mask_classes.length > 0) {
-            switchTab('masks');
-        } else {
-            switchTab('boxes');
-        }
-        
+        renderPresets();
         renderFrame();
 
     } catch (e) {
@@ -71,32 +70,29 @@ async function loadInstanceData(instanceName) {
     }
 }
 
-// Extraction polling remains exactly the same...
 async function triggerExtraction(instanceName) {
     const btn = document.getElementById('btn-trigger-extract');
     const progress = document.getElementById('extraction-progress');
-    
+
     btn.classList.add('hidden');
     progress.classList.remove('hidden');
     progress.classList.add('flex');
 
     try {
-        // Call the FastAPI background task we built earlier
-        const res = await fetch(`/api/dataviz/extract/${instanceName}`, {
+        const res = await fetch(`/api/dataviz/extract/${encodeURIComponent(instanceName)}`, {
             method: 'POST'
         });
         const data = await res.json();
         console.log("Extraction Status:", data.message);
-        
-        // Simple polling: Check back in 10 seconds to see if frames appeared
-        // In a real production app, we'd poll a status endpoint
+
+        // Check back every 5 seconds until frames appear
         const pollInterval = setInterval(async () => {
-            const checkRes = await fetch(`/api/dataviz/data/${instanceName}`);
+            const checkRes = await fetch(`/api/dataviz/data/${encodeURIComponent(instanceName)}`);
             const checkData = await checkRes.json();
-            
+
             if (checkData.frames.length > 0) {
                 clearInterval(pollInterval);
-                loadInstanceData(instanceName); // Reload!
+                loadInstanceData(instanceName);
             }
         }, 5000);
 
@@ -110,168 +106,235 @@ async function triggerExtraction(instanceName) {
 function renderFrame() {
     if(currentDatavizState.frames.length === 0) return;
 
-    const filename = currentDatavizState.frames[currentDatavizState.currentIndex];
+    const state = currentDatavizState;
+    const filename = state.frames[state.currentIndex];
     document.getElementById("dataviz-filename").innerText = `${filename}`;
+    state.highlight = null;
 
-    // 1. Update Base Image
-    const imgUrl = `/api/dataviz/image/${currentDatavizState.instance}/${filename}`;
     const baseImage = document.getElementById("base-image");
-    baseImage.src = imgUrl;
-    
+    baseImage.src = `/api/dataviz/image/${encodeURIComponent(state.instance)}/${encodeURIComponent(filename)}`;
     baseImage.onload = () => {
         const svg = document.getElementById("svg-layer");
         svg.setAttribute("viewBox", `0 0 ${baseImage.naturalWidth} ${baseImage.naturalHeight}`);
-        const canvas = document.getElementById("dataviz-canvas");
-        canvas.style.aspectRatio = `${baseImage.naturalWidth} / ${baseImage.naturalHeight}`;
+        document.getElementById("dataviz-canvas").style.aspectRatio = `${baseImage.naturalWidth} / ${baseImage.naturalHeight}`;
+        const scale = baseImage.naturalWidth / 1000;
+        if(scale !== state.scale) { state.scale = scale; renderBBoxes(filename, false); }
     };
 
-    // 2. Update Mask Overlay (Pass only active mask classes)
-    const activeMasksStr = Array.from(currentDatavizState.activeMaskClasses).join(",");
-    const maskUrl = `/api/dataviz/mask/${filename}?classes=${activeMasksStr}&instance=${currentDatavizState.instance}`;
-    document.getElementById("mask-layer").src = maskUrl;
+    const params = new URLSearchParams({
+        classes: Array.from(state.activeClasses).join(","),
+        instance: state.instance,
+        min_score: state.minScore,
+    });
+    document.getElementById("mask-layer").src = `/api/dataviz/mask/${encodeURIComponent(filename)}?${params}`;
 
-    // 3. Update Inputs
-    document.getElementById("frame-input").value = currentDatavizState.currentIndex + 1;
-    document.getElementById("total-frames-count").innerText = currentDatavizState.frames.length;
+    document.getElementById("frame-input").value = state.currentIndex + 1;
+    document.getElementById("total-frames-count").innerText = state.frames.length;
 
-    // 4. Render BBoxes
     renderBBoxes(filename);
-    
-    // 5. Render Gallery Thumbs
+    renderClassList();
     renderGallery();
 }
 
-function renderBBoxes(filename) {
-    const svg = document.getElementById("svg-layer");
-    svg.innerHTML = ""; 
-
-    const boxes = currentDatavizState.bboxes[filename] || [];
-    boxes.forEach(box => {
-        // Only draw if the box class is currently active
-        if(currentDatavizState.activeBoxClasses.has(box.class_name)) {
-            const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            group.setAttribute("class", `bbox-group layer-${box.class_name.replace(/[^a-zA-Z0-9]/g, '-')}`);
-            
-            const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            rect.setAttribute("x", box.xmin);
-            rect.setAttribute("y", box.ymin);
-            rect.setAttribute("width", box.xmax - box.xmin);
-            rect.setAttribute("height", box.ymax - box.ymin);
-            rect.setAttribute("fill", "none");
-            rect.setAttribute("stroke", box.color || "#00ff00");
-            rect.setAttribute("stroke-width", "2");
-            rect.style.transition = "stroke-width 0.2s, opacity 0.2s";
-
-            const label = box.confidence == null ? box.class_name : `${box.class_name} ${box.confidence.toFixed(2)}`;
-            const textBg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-            textBg.setAttribute("x", box.xmin);
-            textBg.setAttribute("y", box.ymin - 16);
-            textBg.setAttribute("width", (label.length * 6) + 8);
-            textBg.setAttribute("height", 16);
-            textBg.setAttribute("fill", box.color || "#00ff00");
-            textBg.setAttribute("rx", "2");
-
-            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute("x", box.xmin + 4);
-            text.setAttribute("y", box.ymin - 4);
-            text.setAttribute("fill", "white");
-            text.setAttribute("font-size", "10px");
-            text.setAttribute("font-family", "sans-serif");
-            text.setAttribute("font-weight", "bold");
-            text.textContent = label;
-            
-            group.appendChild(rect);
-            group.appendChild(textBg);
-            group.appendChild(text);
-            svg.appendChild(group);
-        }
-    });
-
-    calculateStats(boxes);
+// Detections of the current frame that pass the score filter (and the class filter), best first.
+function frameDetections(filename, onlyActive = true) {
+    const state = currentDatavizState;
+    return (state.bboxes[filename] || [])
+        .filter(box => (box.confidence == null || box.confidence >= state.minScore)
+                    && (!onlyActive || state.activeClasses.has(box.class_name)))
+        .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0));
 }
 
-// --- Tab & Class Selection Logic ---
-function switchTab(tabName) {
-    currentDatavizState.activeTab = tabName;
-    
-    // UI Updates
-    const btnBoxes = document.getElementById('tab-btn-boxes');
-    const btnMasks = document.getElementById('tab-btn-masks');
-    
-    if(tabName === 'boxes') {
-        btnBoxes.className = "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-center border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50 transition-colors";
-        btnMasks.className = "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-center border-b-2 border-transparent text-gray-500 hover:bg-gray-50 transition-colors";
-        document.getElementById('dataviz-stats-container').style.display = 'block';
-    } else {
-        btnMasks.className = "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-center border-b-2 border-indigo-500 text-indigo-600 bg-indigo-50 transition-colors";
-        btnBoxes.className = "flex-1 py-2 text-[10px] font-bold uppercase tracking-wider text-center border-b-2 border-transparent text-gray-500 hover:bg-gray-50 transition-colors";
-        document.getElementById('dataviz-stats-container').style.display = 'none'; // Stats only for boxes currently
-    }
-    
-    renderClassList();
+function svgElement(tag, attributes) {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, value));
+    return element;
+}
+
+function drawBox(svg, box, emphasized) {
+    const color = box.color || "#00ff00";
+    const label = box.confidence == null ? box.class_name : `${box.class_name} ${box.confidence.toFixed(2)}`;
+    const k = currentDatavizState.scale;
+    const group = svgElement("g", {});
+    group.appendChild(svgElement("rect", {
+        x: box.xmin, y: box.ymin, width: box.xmax - box.xmin, height: box.ymax - box.ymin,
+        fill: "none", stroke: color, "stroke-width": (emphasized ? 4 : 1.5) * k,
+    }));
+    group.appendChild(svgElement("rect", {
+        x: box.xmin, y: box.ymin - 18 * k, width: (label.length * 7 + 8) * k, height: 18 * k, fill: color, rx: 2 * k,
+    }));
+    const text = svgElement("text", {
+        x: box.xmin + 4 * k, y: box.ymin - 5 * k, fill: "white", "font-size": `${12 * k}px`,
+        "font-family": "sans-serif", "font-weight": "bold",
+    });
+    text.textContent = label;
+    group.appendChild(text);
+    svg.appendChild(group);
+}
+
+// Boxes are drawn when the Boxes toggle is on; the detection hovered in the list is always drawn.
+function renderBBoxes(filename, listToo = true) {
+    const svg = document.getElementById("svg-layer");
+    svg.innerHTML = "";
+    if(!filename) return;
+
+    const detections = frameDetections(filename);
+    const showAll = document.getElementById("cb-all-bboxes").checked;
+    detections.forEach((box, index) => {
+        const emphasized = index === currentDatavizState.highlight;
+        if(showAll || emphasized) drawBox(svg, box, emphasized);
+    });
+    if(listToo) renderFrameList(detections);
+}
+
+// --- Groups, presets and classes ---
+function renderPresets() {
+    const container = document.getElementById("dataviz-presets");
+    container.innerHTML = "";
+    const chip = (label, classes) => {
+        const button = document.createElement("button");
+        button.className = "text-[10px] px-2 py-0.5 rounded-full border border-gray-300 text-gray-600 hover:border-indigo-400 hover:text-indigo-600";
+        button.textContent = label;
+        button.onclick = () => { currentDatavizState.activeClasses = new Set(classes); renderFrame(); };
+        container.appendChild(button);
+    };
+    const groups = currentDatavizState.groups;
+    if(groups.length > 1) groups.forEach(group => chip(group.name, group.classes));
+    chip("All", groups.flatMap(group => group.classes));
+    chip("None", []);
+}
+
+function classCounts() {
+    const counts = {};
+    const filename = currentDatavizState.frames[currentDatavizState.currentIndex];
+    frameDetections(filename, false).forEach(box => { counts[box.class_name] = (counts[box.class_name] || 0) + 1; });
+    return counts;
 }
 
 function renderClassList() {
+    const state = currentDatavizState;
     const container = document.getElementById("dataviz-class-list");
     container.innerHTML = "";
-    
-    const isBoxes = currentDatavizState.activeTab === 'boxes';
-    const classSource = isBoxes ? currentDatavizState.box_classes : currentDatavizState.mask_classes;
-    const activeSet = isBoxes ? currentDatavizState.activeBoxClasses : currentDatavizState.activeMaskClasses;
 
-    if(classSource.length === 0) {
-        container.innerHTML = `<div class="text-xs text-gray-400 italic">No ${isBoxes ? 'box' : 'mask'} classes found.</div>`;
+    if(state.groups.length === 0) {
+        container.innerHTML = '<div class="text-xs text-gray-400 italic">No detections for this route.</div>';
         return;
     }
 
-    classSource.forEach(cls => {
-        const label = document.createElement("label");
-        label.className = "flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-100 cursor-pointer text-xs transition-colors";
-        
-        if (isBoxes) {
-            const safeSlug = cls.replace(/[^a-zA-Z0-9]/g, '-');
-            label.addEventListener('mouseenter', () => {
-                document.querySelectorAll(`.layer-${safeSlug} rect:first-child`).forEach(r => r.setAttribute("stroke-width", "4"));
-            });
-            label.addEventListener('mouseleave', () => {
-                document.querySelectorAll(`.layer-${safeSlug} rect:first-child`).forEach(r => r.setAttribute("stroke-width", "2"));
-            });
-        }
-        
-        const isChecked = activeSet.has(cls) ? "checked" : "";
-        const color = currentDatavizState.class_colors[cls] || '#ccc';
-        label.innerHTML = `
-            <input type="checkbox" ${isChecked} onchange="toggleClass('${cls}')" class="accent-indigo-600 w-3 h-3 rounded-sm">
-            <span class="w-3 h-3 rounded-full inline-block shrink-0 shadow-sm border border-gray-200" style="background-color: ${color};"></span>
-            <span class="truncate flex-1 text-gray-700">${cls}</span>
-        `;
-        container.appendChild(label);
+    const query = document.getElementById("class-search").value.trim().toLowerCase();
+    const counts = classCounts();
+
+    state.groups.forEach(group => {
+        const classes = group.classes.filter(name => !query || name.toLowerCase().includes(query));
+        if(classes.length === 0) return;
+
+        const active = group.classes.filter(name => state.activeClasses.has(name)).length;
+        const collapsed = state.collapsedGroups.has(group.name) && !query;
+        const total = group.classes.reduce((sum, name) => sum + (counts[name] || 0), 0);
+
+        const header = document.createElement("div");
+        header.className = "flex items-center gap-2 px-1 py-1 mt-1 text-[11px] font-semibold text-gray-700";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.className = "accent-indigo-600 w-3 h-3";
+        box.checked = active === group.classes.length;
+        box.indeterminate = active > 0 && active < group.classes.length;
+        box.title = "Show or hide the whole group";
+        box.onchange = () => {
+            group.classes.forEach(name => box.checked ? state.activeClasses.add(name) : state.activeClasses.delete(name));
+            renderFrame();
+        };
+        const swatch = document.createElement("span");
+        swatch.className = "w-3 h-3 rounded-sm shrink-0";
+        const shades = group.classes.map(name => state.class_colors[name]);
+        swatch.style.background = `linear-gradient(90deg, ${(shades.length > 1 ? shades : [shades[0], shades[0]]).join(", ")})`;
+        const title = document.createElement("button");
+        title.className = "flex-1 text-left truncate hover:text-indigo-600";
+        title.textContent = `${collapsed ? "▸" : "▾"} ${group.name}${group.fill ? " · surface" : ""}`;
+        title.onclick = () => {
+            collapsed ? state.collapsedGroups.delete(group.name) : state.collapsedGroups.add(group.name);
+            renderClassList();
+        };
+        const count = document.createElement("span");
+        count.className = "text-[10px] font-mono text-gray-400";
+        count.textContent = total || "";
+        header.append(box, swatch, title, count);
+        container.appendChild(header);
+
+        if(collapsed) return;
+
+        classes.forEach(name => {
+            const row = document.createElement("label");
+            row.className = "flex items-center gap-2 pl-5 pr-1 py-1 rounded hover:bg-gray-100 cursor-pointer text-xs";
+            const check = document.createElement("input");
+            check.type = "checkbox";
+            check.className = "accent-indigo-600 w-3 h-3";
+            check.checked = state.activeClasses.has(name);
+            check.onchange = () => toggleClass(name);
+            const dot = document.createElement("span");
+            dot.className = "w-2.5 h-2.5 rounded-full shrink-0";
+            dot.style.background = state.class_colors[name] || "#ccc";
+            const label = document.createElement("span");
+            label.className = "truncate flex-1 text-gray-700";
+            label.textContent = name;
+            const n = document.createElement("span");
+            n.className = "text-[10px] font-mono " + (counts[name] ? "text-gray-700 font-bold" : "text-gray-300");
+            n.textContent = counts[name] || 0;
+            n.title = "Detections in this frame above the minimum score";
+            row.append(check, dot, label, n);
+            container.appendChild(row);
+        });
     });
 }
 
 function toggleClass(className) {
-    const activeSet = currentDatavizState.activeTab === 'boxes' 
-        ? currentDatavizState.activeBoxClasses 
-        : currentDatavizState.activeMaskClasses;
-
-    if(activeSet.has(className)) {
-        activeSet.delete(className);
-    } else {
-        activeSet.add(className);
-    }
+    const active = currentDatavizState.activeClasses;
+    active.has(className) ? active.delete(className) : active.add(className);
     renderFrame();
 }
 
-function toggleAllClasses() {
-    const checkboxes = document.querySelectorAll("#dataviz-class-list input");
-    checkboxes.forEach(cb => cb.click());
+// --- Per-frame detection list: hover to highlight, click to show only that class ---
+function renderFrameList(detections) {
+    document.getElementById('stat-total').innerText = detections.length;
+    const list = document.getElementById('stat-list');
+    list.innerHTML = '';
+
+    if(detections.length === 0) {
+        list.innerHTML = '<div class="w-full text-center text-[10px] text-gray-400 italic">No visible detections</div>';
+        return;
+    }
+
+    detections.forEach((box, index) => {
+        const row = document.createElement("button");
+        row.className = "px-2 py-1 rounded flex items-center gap-2 text-[11px] text-left hover:bg-indigo-50";
+        row.title = "Hover to highlight; click to show only this class";
+        const dot = document.createElement("span");
+        dot.className = "w-2.5 h-2.5 rounded-full shrink-0";
+        dot.style.background = box.color;
+        const name = document.createElement("span");
+        name.className = "flex-1 truncate text-gray-700";
+        name.textContent = box.class_name;
+        const score = document.createElement("span");
+        score.className = "font-mono text-gray-500";
+        score.textContent = box.confidence == null ? "" : box.confidence.toFixed(2);
+        row.append(dot, name, score);
+        row.onmouseenter = () => setHighlight(index);
+        row.onmouseleave = () => setHighlight(null);
+        row.onclick = () => { currentDatavizState.activeClasses = new Set([box.class_name]); renderFrame(); };
+        list.appendChild(row);
+    });
+}
+
+function setHighlight(index) {
+    currentDatavizState.highlight = index;
+    renderBBoxes(currentDatavizState.frames[currentDatavizState.currentIndex], false);
 }
 
 // --- Navigation & Global Toggles ---
 function jumpFrame(offset) {
     let newIndex = currentDatavizState.currentIndex + offset;
     newIndex = Math.max(0, Math.min(newIndex, currentDatavizState.frames.length - 1));
-    
+
     if(newIndex !== currentDatavizState.currentIndex) {
         currentDatavizState.currentIndex = newIndex;
         renderFrame();
@@ -287,59 +350,37 @@ function goToFrame(index) {
 }
 
 function toggleBaseImage() { document.getElementById("base-image").style.opacity = document.getElementById("cb-base-img").checked ? '1' : '0'; }
-function toggleAllBBoxLayer() { document.getElementById("svg-layer").style.opacity = document.getElementById("cb-all-bboxes").checked ? '1' : '0'; }
+function toggleAllBBoxLayer() { renderBBoxes(currentDatavizState.frames[currentDatavizState.currentIndex]); }
 function toggleMaskMaster() { document.getElementById("mask-layer").style.display = document.getElementById("cb-mask").checked ? 'block' : 'none'; }
 function updateMaskOpacity(val) {
     document.getElementById("mask-layer").style.opacity = val / 100;
     document.getElementById("mask-opacity-label").innerText = val + '%';
 }
-
-function calculateStats(boxes) {
-    const counts = {};
-    let total = 0;
-    boxes.forEach(box => {
-        if(currentDatavizState.activeBoxClasses.has(box.class_name)) {
-            counts[box.class_name] = (counts[box.class_name] || 0) + 1;
-            total++;
-        }
-    });
-
-    document.getElementById('stat-total').innerText = total;
-    const list = document.getElementById('stat-list');
-    
-    if(total === 0) { 
-        list.innerHTML = '<div class="w-full text-center text-[10px] text-gray-400 italic">No detections</div>'; 
-        return; 
-    }
-    
-    let html = '';
-    Object.entries(counts).sort((a,b) => b[1] - a[1]).forEach(([cls, count]) => {
-        html += `
-        <div class="px-2 py-1 bg-gray-50 rounded border border-gray-100 flex items-center justify-between text-[10px]">
-            <span class="text-gray-600 truncate max-w-[120px]" title="${cls}">${cls}</span>
-            <span class="font-bold text-gray-900">${count}</span>
-        </div>`;
-    });
-    list.innerHTML = html;
+// While dragging, update boxes and counts; the mask image is refetched when the slider is released.
+function updateMinScore(val) {
+    currentDatavizState.minScore = val / 100;
+    document.getElementById("min-score-label").innerText = (val / 100).toFixed(2);
+    renderBBoxes(currentDatavizState.frames[currentDatavizState.currentIndex]);
+    renderClassList();
 }
 
 function renderGallery() {
     const gallery = document.getElementById("dataviz-gallery");
     gallery.innerHTML = "";
-    
+
     const start = Math.max(0, currentDatavizState.currentIndex - 4);
     const end = Math.min(currentDatavizState.frames.length, currentDatavizState.currentIndex + 5);
 
     for(let i = start; i < end; i++) {
         const filename = currentDatavizState.frames[i];
         const img = document.createElement("img");
-        img.src = `/api/dataviz/thumb/${currentDatavizState.instance}/${filename}`;
-        
+        img.src = `/api/dataviz/thumb/${encodeURIComponent(currentDatavizState.instance)}/${encodeURIComponent(filename)}`;
+
         const baseClass = "w-14 h-14 object-cover rounded cursor-pointer border-2 transition-all hover:-translate-y-1 shrink-0";
-        img.className = i === currentDatavizState.currentIndex 
-            ? `${baseClass} border-indigo-500 shadow-lg` 
+        img.className = i === currentDatavizState.currentIndex
+            ? `${baseClass} border-indigo-500 shadow-lg`
             : `${baseClass} border-transparent opacity-50 hover:opacity-100`;
-            
+
         img.onclick = () => {
             currentDatavizState.currentIndex = i;
             renderFrame();
@@ -354,6 +395,8 @@ function resetDatavizUI() {
     document.getElementById("svg-layer").innerHTML = "";
     document.getElementById("dataviz-gallery").innerHTML = "";
     document.getElementById("dataviz-filename").innerText = "No image loaded";
+    document.getElementById("dataviz-redaction").classList.add("hidden");
+    document.getElementById("dataviz-presets").innerHTML = "";
     document.getElementById("dataviz-class-list").innerHTML = '<div class="text-xs text-gray-400 italic">No classes available.</div>';
     document.getElementById("stat-total").innerText = "0";
     document.getElementById("stat-list").innerHTML = "";

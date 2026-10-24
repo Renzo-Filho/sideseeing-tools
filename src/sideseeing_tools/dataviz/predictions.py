@@ -7,7 +7,6 @@ without restarting the server.
 """
 import colorsys
 import glob
-import hashlib
 import io
 import json
 from functools import lru_cache
@@ -146,54 +145,99 @@ def _route_predictions(route, frame_names, sources):
     return found
 
 
-def class_color(class_name, all_classes):
-    """A consistent RGBA color for a class, spreading hues across the classes in all_classes."""
-    if class_name.lower() == 'sidewalk':
-        return (255, 165, 0, 255)
-    if class_name.lower() == 'crosswalk':
-        return (0, 255, 0, 255)
+# One hue per group (orange, blue, green, purple, red, teal, yellow, pink); prompts in a group are its shades.
+GROUP_HUES = (0.08, 0.6, 0.33, 0.78, 0.0, 0.5, 0.15, 0.9)
+FILL_ALPHA = 110  # surfaces are drawn faintly so the objects on them stay visible
+OUTLINE_WIDTH = 3
 
-    dynamic_classes = [c for c in all_classes if c.lower() not in ('sidewalk', 'crosswalk')]
 
-    if class_name in dynamic_classes:
-        index = dynamic_classes.index(class_name)
-        # Golden ratio hue spacing, alternating saturation and lightness
-        hue = (index * 0.618033988749895) % 1.0
-        r, g, b = colorsys.hls_to_rgb(hue, 0.45 + (index % 3) * 0.1, 0.8 + (index % 2) * 0.15)
-    else:
-        value = int(hashlib.md5(class_name.encode()).hexdigest()[:6], 16)
-        r, g, b = colorsys.hls_to_rgb((value % 360) / 360.0, 0.45 + ((value >> 8) % 20) / 100.0, 0.7 + (value % 30) / 100.0)
+def prompt_groups(workspace_dir, classes):
+    """[{name, fill, classes}] from the workspace's optional prompt_groups.json, keeping only classes present.
 
-    return (int(r * 255), int(g * 255), int(b * 255), 255)
+    The file holds {"groups": [{"name": ..., "fill": true|false, "prompts": [...]}]}; classes in no group
+    go to a last group, "Other" (or "All" when there is no file).
+    """
+    path = Path(workspace_dir) / 'prompt_groups.json'
+    configured = json.loads(path.read_text())['groups'] if path.is_file() else []
+    present = set(classes)
+    groups = [
+        dict(name=str(group['name']), fill=bool(group.get('fill')), classes=[c for c in group['prompts'] if c in present])
+        for group in configured
+    ]
+    groups = [group for group in groups if group['classes']]
+    grouped = {name for group in groups for name in group['classes']}
+    rest = [name for name in classes if name not in grouped]
+
+    if rest:
+        groups.append(dict(name='Other' if groups else 'All', fill=False, classes=rest))
+    return groups
+
+
+def group_colors(groups):
+    """{class: RGBA}: one hue per group, from dark to light shades for the classes in it."""
+    colors = {}
+
+    for index, group in enumerate(groups):
+        hue = GROUP_HUES[index % len(GROUP_HUES)]
+        count = len(group['classes'])
+
+        for position, name in enumerate(group['classes']):
+            lightness = 0.32 + 0.38 * position / max(count - 1, 1)
+            r, g, b = colorsys.hls_to_rgb(hue, lightness, 0.85)
+            colors[name] = (int(r * 255), int(g * 255), int(b * 255), 255)
+    return colors
+
+
+def _outline(mask, width=OUTLINE_WIDTH):
+    """The inner border of a boolean mask, `width` pixels thick."""
+    inner = mask
+
+    for _ in range(width):
+        padded = np.pad(inner, 1)
+        inner = inner & padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2] & padded[1:-1, 2:]
+    return mask & ~inner
 
 
 @lru_cache(maxsize=256)
-def _overlay_png(sources):
+def _overlay_png(sources, min_score):
     overlay = None
 
-    for kind, path, _, color in sources:
+    for kind, path, _, color, fill in sources:
         if kind == 'npz':
             with np.load(path, allow_pickle=False) as arrays:
-                mask = arrays['masks'].any(axis=0)
+                masks = arrays['masks'][arrays['scores'] >= min_score]
+                shape = arrays['masks'].shape[1:]
         else:
             with Image.open(path) as image:
-                mask = np.asarray(image.convert('L')) > 0
+                masks = (np.asarray(image.convert('L')) > 0)[None]
+            shape = masks.shape[1:]
 
         if overlay is None:
-            overlay = np.zeros((*mask.shape, 4), dtype=np.uint8)
-        overlay[mask] = color
+            overlay = np.zeros((*shape, 4), dtype=np.uint8)
+        if fill:
+            overlay[masks.any(axis=0)] = (*color[:3], FILL_ALPHA)
+        else:
+            for mask in masks:  # one border per instance, so touching objects stay apart
+                overlay[_outline(mask)] = color
 
     buffer = io.BytesIO()
     Image.fromarray(overlay).save(buffer, 'PNG')
     return buffer.getvalue()
 
 
-def mask_overlay(detections, classes, all_classes):
-    """PNG bytes with the masks of the requested classes in their colors, or None without masks."""
-    sources = tuple(
-        (kind, path, _mtime(path), class_color(detection['class_name'], all_classes))
-        for detection in detections
-        if detection['mask'] and detection['class_name'] in classes
-        for kind, path in [detection['mask']]
+def mask_overlay(detections, classes, colors, filled=(), min_score=0.0):
+    """PNG bytes with the masks of the requested classes, or None without masks.
+
+    Classes in `filled` are faint fills drawn first; the others are outlines on top. Instances scoring
+    below `min_score` are left out (older PNG masks have no per-instance scores and are always drawn).
+    """
+    sources = sorted(
+        (
+            (kind, path, _mtime(path), colors[detection['class_name']], detection['class_name'] in filled)
+            for detection in detections
+            if detection['mask'] and detection['class_name'] in classes
+            for kind, path in [detection['mask']]
+        ),
+        key=lambda source: not source[4],
     )
-    return _overlay_png(sources) if sources else None
+    return _overlay_png(tuple(sources), float(min_score)) if sources else None
