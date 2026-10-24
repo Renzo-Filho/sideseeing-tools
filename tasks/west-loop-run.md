@@ -1,0 +1,87 @@
+# West Loop run: SAM3 prompts, redaction and Whisper for every session
+
+Checklist, 24 October 2026. Runs on utk-desktop-01; results stay there. Nothing is pushed to GitHub.
+
+**Unattended mode (agreed 24 October).** Renzo is away during the run, so no phase waits for him: the curb ramp variants and the Whisper variants all run on every session, and the choices marked **You** are made afterwards from the comparison reports. Public OSRM map matching is skipped for the new sessions (it sends collectors' GPS to a third party and only gives a car-profile road match; it takes about 2 min per session if wanted later). One resumable script on desktop-01 runs everything, so a VPN drop does not stop it.
+
+## Agreed
+
+- Run **all** prompts of the list below on every West Loop session in RustFS.
+- D1 S1 (`2026-10-19-15-43-14-478`) keeps its `sidewalk`, `curb ramp` and `crosswalk` results; only new prompts are added. Other sessions run everything.
+- `human face` and `license plate` are used only for redaction: redacted frames for every session, served by every viewer tab.
+- Curb ramp: `curb ramp`, `curb cut`, `wheelchair ramp`, `ramp` and `curbramp` all run on every session (with one encoding per frame they add ~0.5 s per frame); the comparison on D1 S1's 63 spoken mentions picks the one to keep.
+- Whisper: test fixes for hallucination first; Renzo reviews the result before one configuration is used for all sessions.
+- The dataviz tab needs a design that stays readable with ~30 prompts.
+
+## Prompt list
+
+| Group | Prompts |
+|---|---|
+| Surface and crossings | sidewalk, crosswalk, curb, curb ramp, curb cut, wheelchair ramp, ramp, curbramp, tactile paving, driveway, alley, stairs |
+| Crossing control | traffic light, pedestrian signal, stop sign |
+| Obstacles and furniture | pole, fire hydrant, trash bin, bench, bollard, tree, planter, parking meter, bicycle rack, bus stop |
+| Temporary obstructions | construction barrier, traffic cone, scaffolding |
+| Surface condition | pothole, puddle, manhole cover, sidewalk crack |
+| Context | person, car, bicycle |
+| Privacy (redaction only) | human face, license plate |
+
+## Phase 0: inventory (no GPU)
+
+- [ ] List `rustfs:sideseeing/chicago/west-loop/`: captures, sizes, video durations, audio present.
+- [ ] Estimate frames (step 30), GPU hours and disk; show the table. **You:** confirm the sessions.
+- [ ] Fetch missing captures to `~/sideseeing/raw/chicago/west-loop/` (presigned links, MD5 check against RustFS).
+
+## Phase 1: encode each frame once (built into sideseeing-tools)
+
+- [x] Approved.
+- [x] `Sam3Segmenter.segment_prompts()` encodes each batch once and runs every prompt on it; `segment()` is the one-prompt case. `generate_segmentation` runs all prompts a chunk is missing in one pass; output layout unchanged (e82ff6c).
+- [x] Privacy masks go to `preds/private/` (never read by events, viewer or report); `anonymize_frames` reuses them instead of running SAM3 again.
+- [x] `transcribe(name=..., vad=True)`: one folder per variant, Silero VAD before Whisper.
+- [x] Unit tests (193 pass).
+- [ ] On desktop-01: same masks, scores and boxes as the old per-prompt path on 20 real frames.
+- [ ] Re-measure seconds per frame with all prompts and peak GPU memory.
+
+## Phase 2: curb ramp prompt test
+
+- [ ] Test set from D1 S1: frames from 10 s before to 5 s after each of the 63 spoken curb ramp mentions (~900 frames), plus ~300 mid-block frames ≥ 50 m from any mapped crosswalk as negatives.
+- [ ] The 5 variants come from the full run (no separate experiment).
+- [ ] Report: share of mentions with a detection, share of negative frames with one, scores, and a gallery per variant. Spoken mentions are not exhaustive, so this is a proxy, not recall.
+- [ ] **You:** pick the winner (or none).
+
+## Phase 3: Whisper hallucination test
+
+- [ ] Variants on every session, one transcript folder each (all with the vocabulary prompt, English, `condition_on_previous_text=False`):
+  - `whisper-turbo`: current configuration (baseline);
+  - `turbo-silence`: + `hallucination_silence_threshold=2` with `word_timestamps=True` (built in);
+  - `turbo-vad`: Silero VAD first, Whisper only on speech regions (`silero-vad` approved);
+  - `large-v3-vad`: `large-v3` with VAD;
+  - post-filters on `avg_logprob`, `compression_ratio` and `no_speech_prob`, applied in the comparison, not as runs.
+- [ ] Automatic comparison: segments kept, known garbage segments removed, vocabulary counts, time per variant.
+- [ ] Review packet: sampled and flagged segments with their audio clips and a form (correct / wrong words / invented / missed speech). Local only; audio does not leave the machines.
+- [ ] **You:** review, then pick the configuration.
+
+## Phase 4: freeze
+
+- [ ] Final prompt list and Whisper configuration recorded in `tasks/desktop-01-pilot.md`.
+- [x] Public OSRM map matching skipped for the new sessions (unattended default); **You:** run it later?
+
+## Phase 5: full run (detached, logged, monitored)
+
+- [ ] One study workspace, `~/sideseeing/workspaces/west-loop`, with all sessions.
+- [ ] Frames, step 30, for new sessions.
+- [ ] Redaction (face, license plate) for all sessions, including D1 S1.
+- [ ] Segmentation: all prompts; D1 S1 only the new ones.
+- [ ] Whisper: every variant on every session, one folder each; D1 S1's current `whisper-turbo` transcript is kept as the baseline.
+- [ ] Map matching (per Phase 4), events, report.
+- [ ] Record duration and peak GPU memory per stage and session.
+
+## Phase 6: viewer
+
+- [ ] Viewer and report serve redacted frames whenever they exist, in every tab; test that no route falls back to originals silently.
+- [ ] Dataviz design for ~30 prompts (see `tasks/visual-analytics-plan.md`): mock-up first. **You:** approve, then implement.
+
+## Phase 7: review and close
+
+- [ ] Spot-check redaction on each session (marked `processed-not-privacy-validated` until reviewed).
+- [ ] Update the analysis notebook for all sessions, if wanted.
+- [ ] Update docs, commit locally.
