@@ -62,7 +62,7 @@ Scripts: `tasks/west-loop/` (copied to `~/sideseeing/` on desktop-01). `run_west
 
   No curb ramp phrasing works. `curb cut` fires more mid-block than near crosswalks at every score threshold (0.5–0.95), so it is not tracking ramps. `tactile paving` is a strong proxy: Chicago's ramps carry detectable warning plates. Spoken mentions are not exhaustive, so "mentions found" is a recall proxy.
 - [ ] Galleries of `tactile paving` and `curb cut` masks on redacted frames, to confirm what each one segments.
-- [x] **Decision (Renzo): `tactile paving` is the curb ramp proxy.** Limitation: some curb ramps have no tactile plate (Renzo says so in the narration), so the proxy misses them; the 3 of 63 mentions without a tactile detection are the first places to check. Later option: SAM3 image exemplars (boxes around a few real ramps, with and without plates).
+- [x] **Decision (Renzo): `tactile paving` is the curb ramp proxy.** Limitation: some curb ramps have no tactile plate (Renzo says so in the narration), so the proxy misses them; of the 3 mentions without a tactile detection, one says "no curb ramp" (36:57, a correct miss), so the candidates for ramps without plates are D1 S1 at 18:31 and 42:34. Later option: SAM3 image exemplars (boxes around a few real ramps, with and without plates).
 
 ## Phase 3: Whisper hallucination test
 
