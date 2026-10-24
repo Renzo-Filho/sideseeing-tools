@@ -120,7 +120,7 @@ function exportCsv() {{
   const lines = ['item,route,start_s,end_s,kind,field,answer'];
   for (const [name, value] of Object.entries(saved)) {{
     const [i, field] = name.split('|'); const m = META[+i];
-    lines.push([+i + 1, m.route, m.a, m.b, m.kind, field, JSON.stringify(value)].join(','));
+    lines.push([+i + 1, m.route, m.a, m.b, m.kind, field, '"' + String(value).replace(/"/g, '""') + '"'].join(','));
   }}
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([lines.join('\\n')], {{type: 'text/csv'}}));
