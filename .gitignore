@@ -15,3 +15,4 @@ requirements.txt
 # Local model weights
 sam3-offline/
 *.safetensors
+.playwright-cli
