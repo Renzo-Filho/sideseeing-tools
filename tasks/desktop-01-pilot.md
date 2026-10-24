@@ -38,7 +38,7 @@ Measured on 23 October 2026. "PyTorch" is `torch.cuda.max_memory_allocated`; "ca
 | Whisper `turbo` + vocabulary prompt | – | 52 s | 4.75 GiB | Best: consistent "curb ramp", fewest invented fragments |
 | Extract frames, step 30 | 2,653 | 158 s | – | |
 | SAM3, 3 prompts, batch 1 | 2,653 × 3 | 6,371 s (1 h 46 min) | 3.90 GiB PyTorch | 0.80 s per frame and prompt; 498 chunks |
-| Map matching (public OSRM) | – | 119 s | – | First attempt failed: torchvision's bundled libjpeg broke pyogrio; fixed in 7e20eb9 |
+| Map matching (public OSRM) | – | 119 s | – | First attempt failed: torchvision's bundled libjpeg broke pyogrio; fixed in 96512fe |
 | Sidewalk events | – | 3 s | – | 131 events: 67 crosswalk, 59 sidewalk, 5 curb ramp |
 | Whisper `turbo` + vocabulary prompt | – | 73 s | 4.59 GiB | 273 segments; 51 with `avg_logprob` < −1, none with `no_speech_prob` > 0.5 |
 | Static report | – | 33 s | – | Not built by the run (no `--report`); generated afterwards |
@@ -53,7 +53,8 @@ Analysed in `sideseeing-network/network/west_loop_sam3_whisper.ipynb`, against t
 - **Sidewalk events are the cap.** 57 of 59 are exactly `MAX_FRAMES_PER_EVENT` (45) frames: continuous detection cut into pieces, not events.
 - **Whisper hallucinations are not caught by `no_speech_prob`.** Invented segments ("The вашиisma passage", "機械") all have `avg_logprob` < −1 and low `no_speech_prob`; doc-workspace.md now says to filter on both. The vocabulary works: "crosswalk" is said a median 4 s after leaving the curb, so narration can label frames.
 - **Viewer and report.** `build_workspace.py` builds the report only with `--report`, and the viewer showed no sign that one was missing. The viewer now shows "Report not generated" with the command in a tooltip.
-- **Map matching crashed** in the first attempt: torchvision's bundled libjpeg breaks `pyogrio` when SAM3 runs first in the same process. Fixed in 7e20eb9.
+- **The report lost the fork's section UI in the upstream merge** (thin single GPS line, plain selects): the merge took geo, sensor and wifi files from upstream although upstream had not changed them. Restored in fc8f937, with the map-matched route drawn as "Corrected GPS".
+- **Map matching crashed** in the first attempt: torchvision's bundled libjpeg breaks `pyogrio` when SAM3 runs first in the same process. Fixed in 96512fe.
 
 Decisions from the quick pass: SAM3 batch 1 (batching does not speed it up on the 3070); Whisper `turbo` with the vocabulary prompt `Sidewalk audit narration: curb ramp, crosswalk, obstacle, pothole, signal, sidewalk, pole, tree.`
 
